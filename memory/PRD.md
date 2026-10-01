@@ -14,7 +14,12 @@ User choices: deliver phase-wise; Twilio keys provided ("all information should 
 ## Personas
 Super-admin (RevLoop team), Garage owner, Garage staff (Calendar/Customers/Inbox only, enforced server-side)
 
-## Implemented (2026-10-01)
+## Implemented (2026-10-01, iteration 2)
+- Phase 3 Stripe billing (claimable Stripe test sandbox, CA account): plans live in the `plans` collection and super-admins edit them in Platform admin → Plans, which re-syncs CAD prices by lookup_key (Starter $49/300, Growth $99/1000, 500-SMS pack $15). Includes checkout (subscription + one-time pack), status polling, a signature-verified idempotent webhook at /api/stripe/webhook, grace period (BILLING_GRACE_DAYS, default 7), invoices list, customer portal, and an owner Billing tab
+- Phase 5 AI sales module (/sales, super-admin only): prospect CSV import with dedupe and DNC suppression, a 7-stage Kanban with stage history, a permanent do-not-call list (bulk paste for National DNCL), exportable call-attempt CSV, an agent script editor (opening line must identify RevLoop and give the recording notice), campaigns (calling window clamped to CRTC hours, attempt caps, retry spacing), and Vapi dialing from the cron tick. The Vapi webhook is secret-verified; GPT summaries come from gpt-5.6-terra (Universal Key). In-call opt-outs go to DNC automatically, and outcomes update the funnel stage. There's also a simulated-call endpoint for testing without Vapi
+- Tests: iteration_3 — 81/81 backend, all critical frontend flows pass
+
+## Implemented (2026-10-01, iteration 1)
 - Phase 0: auth (password + Google), roles, tenant scoping, audit log, encrypted settings, cron endpoints with bearer secret + idempotency
 - Phase 1: CRM, quick-add, CSV import with duplicate flagging (tested at 500 rows), search, bay calendar, booking with conflict checks, status changes with service record, public booking with unbundled optional consent, honeypot and rate limits, cancel link, QR, dashboard KPIs
 - Phase 2: templates with variables, live preview and segment counter; confirmation and 24h/2h reminders; review request with click tracking (/api/r/{token}) and a 3-day follow-up; service-due scan; quiet hours; 30-day review cap; dedupe keys; STOP/START/HELP/YES/CANCEL handling; consent snapshot on every send; Twilio signature-verified webhooks
@@ -22,6 +27,11 @@ Super-admin (RevLoop team), Garage owner, Garage staff (Calendar/Customers/Inbox
 - Tests: iteration_2 — backend 44/44, frontend all critical flows pass
 
 ## Backlog
+- P0: Vapi account → add VAPI_API_KEY / VAPI_PHONE_NUMBER_ID / VAPI_WEBHOOK_SECRET (+ ElevenLabs voice) in Integrations, then run a test AI call; choose the AI caller ID
+- P0: claim the Stripe sandbox to go live; switch SMS_MODE to live
+- P1: copy call recordings into object storage; Phase 4 rest (feature flags, auto-provision numbers)
+- P2 Phase 6: acceptance run, backup docs, delivery notes
+## Old backlog
 - P0 Phase 3: Stripe CAD subscriptions, quota/overage packs, grace period, invoices, billing UI
 - P0: switch SMS_MODE to live, assign +12896721172 to the user's real garage, run a live STOP test
 - P1 Phase 4 rest: plan management + feature flags, auto-provision numbers, global defaults

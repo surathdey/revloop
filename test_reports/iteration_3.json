@@ -1,0 +1,38 @@
+{
+  "summary": "Phase 3 (Stripe billing CAD) and Phase 5 (AI cold-calling sales) tested end-to-end. Added /app/backend/tests/test_phase3_sales_billing.py (37 new tests) → combined with existing backend_test.py: 81/81 pytest passing. Frontend: owner Billing panel renders current trial plan + Starter($49)/Growth($99) cards + invoice list; subscribe-starter correctly redirects to Stripe Checkout (test mode) at checkout.stripe.com/c/pay/cs_test_...; /payment/cancel renders payment-cancelled; sms-pack-card correctly hidden until subscription exists; owner has no 'AI Sales' nav link and /sales URL redirects to dashboard. Admin Plans tab: 3 plans (starter/growth/pack) with amount inputs; changing Growth $99 → $109, Save shows toast 'Plan saved and synced to Stripe', input reflects 109; restored to 99 cleanly. Admin Integrations tab lists all 6 new keys (VAPI_API_KEY, VAPI_PHONE_NUMBER_ID, VAPI_WEBHOOK_SECRET, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID, BILLING_GRACE_DAYS). AI Sales page (superadmin): 4 analytics cards + 7-stage Kanban (new/contacted/interested/demo_booked/won/lost/do_not_call); CSV import toast 'Imported 3 · 0 duplicates · 0 DNC-suppressed · 0 errors'; prospect sheet opens on card click; simulate-call with opt-out transcript → GPT summary rendered, stage history 'new → do_not_call · ai-caller', stage-select hidden, DNC pill shown; Campaigns tab 'Start' triggers expected 503 toast 'Vapi is not configured yet'; Script tab bad opening (missing 'RevLoop'/'record') returns 400 toast; DNC tab Export CSV anchor points to /api/sales/calls/export. Backend: webhook rejects bad Stripe signature (400) and bad Vapi secret (403); staff gets 403 on /api/billing and /api/billing/checkout; owner gets 403 on all 6 /api/sales/* routes; checkout plan='pack' without subscription returns 400 as specified; unknown plan returns 404; Growth plan put/restore cycle syncs Stripe price IDs. Simulate-call with demo-booking transcript → outcome=demo_booked and stage advances; opt-out transcript → outcome=do_not_call, dnc=true, phone added to DNC list, further stage POST returns 400 (permanent).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Prospect detail Sheet (Sales page)", "issue": "Radix DialogContent is missing a DialogTitle, causing an accessibility console warning: '`DialogContent` requires a `DialogTitle` for the component to be accessible for screen reader users.' Visible as business_name h2 but needs to be semantically wired as the title (or wrapped with VisuallyHidden).", "selector": "[data-testid='prospect-sheet']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_phase3_sales_billing.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/phase3_results.xml"
+  ],
+  "action_items": [
+    "(Low) Wrap the Sales prospect-sheet business_name heading as a proper SheetTitle/DialogTitle (or VisuallyHidden wrapper) to silence the Radix a11y warning."
+  ],
+  "critical_code_review_comments": [
+    "billing.py checkout logic cleanly enforces 'pack requires existing subscription' and 'can't double-subscribe' invariants, verified by pytest.",
+    "sales.py set_stage correctly rejects stage changes once in do_not_call ('Do-not-call is permanent.') — verified end-to-end via simulate-call and manual POST.",
+    "sales.summarize() uses regex fallback for non-JSON GPT output and forces outcome='do_not_call' when opt-out phrases are detected; a nice belt-and-suspenders implementation.",
+    "In-batch duplicate detection in /sales/prospects/import works because 'have' set is mutated per row — behavior differs from CSV CRM import; worth documenting but not broken.",
+    "sync_price() uses the lookup_key + metadata.emergent_product_id pattern correctly; price change on Growth creates a new price id and marks the old one inactive. Confirmed via admin UI roundtrip 99→109→99.",
+    "ADMIN /admin/plans endpoint returns stripe_price_id — frontend should ideally display it; currently not shown in Admin.tsx plan card (minor UX nit)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_phase3_sales_billing.py (NEW: 37 tests for billing, admin plans, sales access/flow, script, campaigns, DNC, CSV export)"
+  ],
+  "success_rate": {"backend": "100% (81/81 pytest, including 37 new Phase 3+5 cases)", "frontend": "100% of critical flows (billing panel + Stripe redirect, Admin Plans save/restore, Integrations keys, Sales analytics + 7-col kanban + CSV import + simulate opt-out + campaign Vapi-503 + script 400 + DNC export)"},
+  "test_credentials": "Used /app/memory/test_credentials.md unchanged (super/owner/staff all valid).",
+  "seed_data_creation": "Backend tests created ~10 TEST_Shop_* prospects on 647-777-xxxx range, 1 TEST_OptOut_* on 647-666-xxxx (now in DNC), and ~1 TEST_Suppressed_* via DNC. UI created 3 TEST_UI_Shop_* on 647-888-xxxx, 1 TEST_UI_Shop_e466f opted-out via UI simulate-call, 1 'TEST UI Camp <ts>' campaign (draft). Safe to purge; all prefixed TEST_.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend suite now has two files: /app/backend/tests/backend_test.py (Phase 0/1/2 regression, 44 tests) and /app/backend/tests/test_phase3_sales_billing.py (Phase 3+5, 37 tests). Both use REACT_APP_BACKEND_URL and 'X-RevLoop-Client: web' header on mutating requests. Phones to avoid collisions: tests use uuid-random 647-777-xxxx (import), 647-666-xxxx (opt-out), and will keep DNC entries across runs. Stripe test cards work in checkout; actual card submission not automated here — subscribe-starter opens Stripe hosted page successfully. Vapi webhook secret check uses hmac.compare_digest; webhook correctly 403s without x-vapi-secret header.",
+  "rca of the issue": "No new bugs. One minor a11y warning (DialogContent without DialogTitle) in prospect-sheet; non-blocking."
+}

@@ -24,7 +24,7 @@ function ProspectSheet({ id, onClose, onChange }: any) {
   return (
     <Sheet open={!!id} onOpenChange={(o: boolean) => !o && onClose()}>
       <SheetContent className="w-full overflow-y-auto border-white/10 bg-[#131B2A] sm:max-w-lg" data-testid="prospect-sheet">
-        {!p ? <Spinner /> : <>
+        {!p ? <><SheetHeader><SheetTitle>Prospect</SheetTitle></SheetHeader><Spinner /></> : <>
           <SheetHeader><SheetTitle className="font-display text-2xl">{p.business_name}</SheetTitle></SheetHeader>
           <div className="mt-2 space-y-1 text-sm text-slate-300"><div className="font-mono-rl">{p.phone}</div><div>{p.contact_name} {p.city && `· ${p.city}`}</div><div className="flex gap-2"><Pill value={p.dnc ? "opted-out" : "scheduled"} testId="prospect-stage" /><span className="capitalize">{label(p.stage)}</span> · {p.attempts} attempts</div></div>
           {!p.dnc && <Select value={p.stage} onValueChange={move}><SelectTrigger data-testid="prospect-stage-select" className={`${inputCls} mt-3`}><SelectValue /></SelectTrigger><SelectContent>{STAGES.map((s) => <SelectItem key={s} value={s}>{label(s)}</SelectItem>)}</SelectContent></Select>}
