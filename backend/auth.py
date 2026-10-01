@@ -88,7 +88,7 @@ async def create_session(user_id: str, response: Response):
 
 
 def slugify(s: str):
-    return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:40] + "-" + secrets.token_hex(3)
+    return (re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")[:40] or "garage") + "-" + secrets.token_hex(3)
 
 
 async def create_tenant(email, name, business, password_hash=None, google_sub=None, role="owner", approved=False, slug=None):

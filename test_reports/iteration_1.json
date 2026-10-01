@@ -1,0 +1,65 @@
+{
+  "summary": "Phase 0/1/2 backend tested via pytest (44/44 passed on /api/*): auth (login/signup/logout/me/wrong-password), tenant isolation (new signup cannot read demo contacts), role enforcement (staff 403 on dashboard/settings/templates/services/invite/process/admin/*; owner 403 on /admin/*), CRM (quick-add + duplicate 409, search, CSV import 10 rows + re-import all duplicates), appointments (conflict 409, past rejected), templates/settings (invalid review link + bad quiet hours rejected), invite URL issued, public garage/business/slots/book (consent-optional) + honeypot, admin overview/tenants/numbers/audits + masked secrets, cron auth (401 w/o bearer, 200 + duplicate=true on same X-Webhook-Id), Twilio webhook signature rejects (403), manual send blocked for no-consent contact. Frontend login flow is BROKEN end-to-end for any real browser due to origin-guard middleware vs. ingress-rewritten Origin header (see RCA). All assertions on data (not only status codes); test file uses pytest fixtures and TEST_ prefix.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "ALL /api/* POST|PUT|PATCH|DELETE (origin_guard middleware in server.py)",
+        "issue": "Browser requests from https://garage-sms-crm.preview.emergentagent.com are rejected with 403 'Request origin not allowed.' The Kubernetes/Cloudflare ingress REWRITES the Origin header to the internal cluster hostname 'https://garage-sms-crm.cluster-12.preview.emergentcf.cloud' before it reaches FastAPI, but origin_guard compares it against PUBLIC_BASE_URL only. Result: NO USER CAN LOG IN, SIGN UP, BOOK, OR DO ANY WRITE OPERATION FROM A BROWSER. GETs still work (no origin check), so the UI renders /login but every form submit silently 403s (visible toast 'Request origin not allowed.' seen in Playwright screenshots). Verified by temporary logging: origin='https://garage-sms-crm.cluster-12.preview.emergentcf.cloud' expected='https://garage-sms-crm.preview.emergentagent.com'.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "LoginPage",
+        "issue": "After filling owner credentials and clicking Sign in, user stays on /login with a red 'Request origin not allowed.' toast (root cause is backend origin_guard, see critical issue). Blocks ALL authenticated UI testing.",
+        "selector": "button:has-text('Sign in')",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "PublicBooking (/book/demo-auto-toronto)",
+        "issue": "Services render but could not locate data-testid='public-consent' on initial load (step 1 only shows service list; consent appears later in flow). Could not exercise full flow because UI is partially JS-rendered and public-book-submit testid not visible until later steps; the backend /api/public/book endpoint itself works (verified via pytest).",
+        "selector": "[data-testid='public-consent']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Entire authenticated UI (login, dashboard, calendar, customers, inbox, automations, settings, admin, impersonation)",
+        "issue": "Cannot test ANY of these from the browser because every POST /api/auth/login returns 403 due to origin header mismatch. Backend endpoints themselves are healthy (pytest 44/44).",
+        "affected_selectors": ["[data-testid='*']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "FIX ORIGIN GUARD (server.py line 26-29): the ingress rewrites Origin to the internal cluster hostname. Options: (a) also honour CORS_ORIGINS env list (currently '*') and skip the check when CORS_ORIGINS='*'; (b) include the known preview-cluster origin ('https://garage-sms-crm.cluster-12.preview.emergentcf.cloud') or wildcard '*.preview.emergentcf.cloud' and '*.preview.emergentagent.com' via regex; (c) extract host from Origin and compare host only, since https scheme is enforced by edge; (d) simply remove the duplicate CSRF-origin middleware and rely on SameSite=None cookies + CORS (recommended – browsers already reject cross-site writes via CORS pre-flight when credentials=true and allow_origins is explicit). Current behaviour makes the preview app unusable from any browser.",
+    "After fix: retest login + full UI flows (dashboard, calendar booking, customer quick-add, CSV import, inbox simulate-reply YES/STOP/CANCEL, settings save + invite accept in fresh browser, admin approve/suspend/activate + impersonation banner, public booking end-to-end on mobile 390px, review redirect /api/r/{token})."
+  ],
+  "critical_code_review_comments": [
+    "server.py origin_guard double-checks origin on top of CORSMiddleware which is redundant and currently misconfigured for preview edge; recommend removing or using regex host match.",
+    "core.py: CORS_ORIGINS='*' with allow_credentials=True is invalid per CORS spec and will be ignored by browsers – should be explicit origin list.",
+    "auth.py create_tenant: slugify can produce empty prefix if business name is non-ASCII; '-' + hex6 still works but slug could start with '-'.",
+    "admin.py tenant_action: when action='cancel' or 'suspend', sessions deletion uses async for comprehension inside dict – fine, but after suspend the tenant 'is_platform' lookup for superadmin's own tenant could be collateral; current filter excludes platform so OK.",
+    "messaging.py billing_ok: no coverage test executed because demo tenant is in 'trialing' status within 14d; but logic LGTM.",
+    "cron.py uses os.environ['WEBHOOK_CRON_SECRET'] inside hmac.compare_digest – good constant-time; however if the env var is missing uvicorn would 500 instead of 401, consider guarding.",
+    "public.py public_book: unauthenticated POST – not exempted from origin_guard, so from a real customer’s browser this is ALSO blocked until the origin fix lands.",
+    "No tests folder was present – added /app/backend/tests/backend_test.py + pytest.ini already existed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (new)"
+  ],
+  "success_rate": {"backend": "100% (44/44 pytest)", "frontend": "0% (login blocked by origin_guard)"},
+  "test_credentials": "Used from /app/memory/test_credentials.md (super/owner/staff) – all valid.",
+  "seed_data_creation": "Created a few TEST_ customers (phones 647-555-01xx / 02xx) and 10 CSV-imported TEST_CSV_* contacts in the demo tenant plus one TEST_ pending garage via signup. Safe to leave or purge.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend API layer is solid (44/44). The ONLY blocker for frontend testing is the origin_guard middleware in /app/backend/server.py rejecting the ingress-rewritten Origin header (origin received = 'https://garage-sms-crm.cluster-12.preview.emergentcf.cloud'). Once main agent updates origin_guard (recommend: remove it, OR allow regex '.*\\.preview\\.(emergentagent\\.com|emergentcf\\.cloud)$', OR skip when CORS_ORIGINS='*'), re-run Playwright flows: login owner/staff/superadmin, book appointment, csv import UI, inbox simulate-reply (YES/STOP/CANCEL), admin approve/suspend/activate + impersonate banner, public booking consent-optional flow, mobile 390px layout. Backend tests to re-run: pytest /app/backend/tests/backend_test.py.",
+  "rca of the issue": "RCA (origin_guard blocks all browser POSTs on preview URL): The FastAPI app installs a custom middleware `origin_guard` (server.py lines 24-30) that rejects any mutating request whose Origin header does not match origin() (= PUBLIC_BASE_URL env, 'https://garage-sms-crm.preview.emergentagent.com') or 'http://localhost:3000'. However the k8s/Cloudflare preview ingress REWRITES Origin to the internal routable hostname 'https://garage-sms-crm.cluster-12.preview.emergentcf.cloud' before the request reaches the pod. Confirmation: enabled temporary logging and observed `origin='https://garage-sms-crm.cluster-12.preview.emergentcf.cloud' expected='https://garage-sms-crm.preview.emergentagent.com'`. Reproduction: `curl -X POST https://garage-sms-crm.preview.emergentagent.com/api/auth/login -H 'Origin: https://garage-sms-crm.preview.emergentagent.com' -H 'Content-Type: application/json' -d '{\"email\":\"owner@demo.revloop.test\",\"password\":\"RevLoop-Demo-2026!\"}'` -> HTTP 403 {\"detail\":\"Request origin not allowed.\"}. Without Origin header: 200 (that is why pytest passed). Mitigation (ordered by safety): 1) Trust CORS middleware alone — delete `origin_guard` entirely (SameSite=None+Secure cookies + explicit CORS allow_origins list already protects against CSRF/cross-site writes). 2) If keeping it, replace equality check with a regex that whitelists '*.preview.emergentagent.com' and '*.preview.emergentcf.cloud' as well as any additional origins listed in CORS_ORIGINS. 3) Also fix CORS: CORS_ORIGINS='*' + allow_credentials=True is non-compliant – browsers ignore '*' with credentials; set explicit list including the two preview hosts."
+}

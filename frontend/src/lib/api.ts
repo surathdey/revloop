@@ -1,7 +1,7 @@
 import axios from "axios";
 
 export const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-export const api = axios.create({ baseURL: API, withCredentials: true });
+export const api = axios.create({ baseURL: API, withCredentials: true, headers: { "X-RevLoop-Client": "web" } });
 
 export function errMsg(e: any): string {
   const d = e?.response?.data?.detail;

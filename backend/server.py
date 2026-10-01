@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.exceptions import RequestValidationError  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from starlette.middleware.cors import CORSMiddleware  # noqa: E402
-from core import client, origin  # noqa: E402
+from core import client  # noqa: E402
 import auth, crm, appointments, messaging, public, admin, cron, seed  # noqa: E402,E401
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -24,8 +24,8 @@ ORIGIN_EXEMPT = ("/api/webhooks/", "/api/cron/")
 @app.middleware("http")
 async def origin_guard(request: Request, call_next):
     if request.method in ("POST", "PUT", "PATCH", "DELETE") and not request.url.path.startswith(ORIGIN_EXEMPT):
-        o = request.headers.get("origin")
-        if o and o.rstrip("/") not in (origin(), "http://localhost:3000"):
+        # CSRF defense: cross-site forms cannot set custom headers, and CORS only allows CORS_ORIGINS to preflight them.
+        if request.headers.get("x-revloop-client") != "web" and not request.headers.get("authorization", "").startswith("Bearer "):
             return JSONResponse({"detail": "Request origin not allowed."}, status_code=403)
     return await call_next(request)
 
