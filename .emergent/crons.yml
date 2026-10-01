@@ -1,0 +1,16 @@
+crons:
+  - name: sms-queue-tick
+    description: "Sends due SMS (confirmations, 24h/2h reminders, reviews, follow-ups) every 15 minutes"
+    cron: "*/15 * * * *"
+    endpoint: "{{BASE_URL}}/api/cron/tick"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true
+  - name: service-due-nightly
+    description: "Nightly service-due scan at 3am Toronto that queues service reminders"
+    cron: "0 3 * * *"
+    timezone: "America/Toronto"
+    endpoint: "{{BASE_URL}}/api/cron/nightly"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

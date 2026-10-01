@@ -1,0 +1,83 @@
+{
+  "project_name": "RevLoop — Multi-Tenant Garage SaaS + AI Sales Platform",
+  "app_type": "saas_app / dashboard (mobile-first for garage owners) + public customer booking page",
+  "archetype": "Performance Pro & Industrial Tactical",
+  "file_extensions": ".js",
+  "theme": {
+    "default_mode": "dark",
+    "theme_toggle_supported": true,
+    "primary_dark_bg": "#0B0F17",
+    "secondary_dark_surface": "#131B2A",
+    "card_dark_bg": "#1A2333",
+    "accent_primary": "#F97316",
+    "accent_primary_hover": "#EA580C",
+    "accent_secondary": "#38BDF8",
+    "status_success": "#22C55E",
+    "status_warning": "#F59E0B",
+    "status_danger": "#EF4444",
+    "status_info": "#6366F1",
+    "text_primary_dark": "#F8FAFC",
+    "text_secondary_dark": "#94A3B8",
+    "text_muted_dark": "#64748B",
+    "border_dark": "rgba(255, 255, 255, 0.1)",
+    "light_mode_override": {
+      "bg": "#F8FAFC",
+      "surface": "#FFFFFF",
+      "text": "#0F172A",
+      "border": "#E2E8F0"
+    }
+  },
+  "typography": {
+    "heading_font": "Cabinet Grotesk, Outfit, sans-serif",
+    "body_font": "Plus Jakarta Sans, Inter, sans-serif",
+    "mono_font": "JetBrains Mono, monospace",
+    "hierarchy": {
+      "h1": "text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight",
+      "h2": "text-2xl sm:text-3xl font-bold tracking-tight",
+      "h3": "text-lg sm:text-xl font-semibold",
+      "h4": "text-base font-semibold",
+      "body": "text-sm sm:text-base leading-relaxed",
+      "small_label": "text-xs font-medium uppercase tracking-wider text-slate-400"
+    }
+  },
+  "layout_strategy": {
+    "mobile_first": true,
+    "dashboard_grid": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6",
+    "bento_spans": {
+      "hero_kpi": "col-span-1 md:col-span-2 lg:col-span-2",
+      "stat_card": "col-span-1",
+      "feed_list": "col-span-1 md:col-span-2 row-span-2"
+    },
+    "public_booking_page": "max-w-xl mx-auto px-4 py-8 space-y-6"
+  },
+  "components_and_ui_patterns": {
+    "navigation": "Sticky top bar with glassmorphic backdrop (backdrop-blur-md bg-[#0B0F17]/80 border-b border-white/10). Mobile bottom navigation bar for quick garage actions (Bay Calendar, Inbox, Quick Add, CRM).",
+    "cards": "Subtle border (border-white/10) with dark slate background (#1A2333), hover lift (-translate-y-0.5), crisp high contrast text.",
+    "buttons": "Primary: Amber/Orange gradient with solid tracking (bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-lg shadow-md transition-colors). Secondary: Glass dark button with subtle white border.",
+    "tables": "Dense, crisp data rows with alternating opacity, hover highlight, status badges with subtle tint.",
+    "forms_and_inputs": "Use Custom Shadcn inputs with dark backgrounds (bg-[#0F172A] border-slate-700 focus:border-orange-500 text-white).",
+    "toasts": "Sonner toast notifications imported from /src/components/ui/sonner.js or /src/components/ui/sonner.jsx.",
+    "testing_attribute": "CRITICAL: Every interactive component (buttons, inputs, links, tabs, dialog triggers, status badges, metrics) MUST contain data-testid attributes in kebab-case (e.g. data-testid='quick-add-customer-btn', data-testid='bay-calendar-slot')."
+  },
+  "image_urls": {
+    "hero_mechanic_working": "https://images.unsplash.com/photo-1615906655593-ad0386982a0f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwxfHxjYXIlMjBzZXJ2aWNlJTIwbWVjaGFuaWMlMjBpbnNwZWN0aW9ufGVufDB8fHx8MTc9MDg3OTQyOXww&ixlib=rb-4.1.0&q=85",
+    "mechanic_inspecting_engine": "https://images.unsplash.com/photo-1625047509248-ec889cbff17f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwyfHxjYXIlMjBzZXJ2aWNlJTIwbWVjaGFuaWMlMjBpbnNwZWN0aW9ufGVufDB8fHx8MTc9MDg3OTQyOXww&ixlib=rb-4.1.0&q=85",
+    "garage_bay_cars": "https://images.unsplash.com/photo-1618312980096-873bd19759a0?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODF8MHwxfHNlYXJjaHwxfHxhdXRvJTIwbWVjaGFuaWMlMjB3b3Jrc2hvcCUyMGNhciUyMHNlcnZpY2UlMjByZXBhaXIlMjBnYXJhZ2V8ZW58MHx8fHwxNzkwODc5NDIyfDA&ixlib=rb-4.1.0&q=85",
+    "engine_tools_hands": "https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwzfHxjYXIlMjBzZXJ2aWNlJTIwbWVjaGFuaWMlMjBpbnNwZWN0aW9ufGVufDB8fHx8MTc9MDg3OTQyOXww&ixlib=rb-4.1.0&q=85"
+  },
+  "instructions_to_main_agent": [
+    "Always use JS/JSX syntax for code files as the repository uses JavaScript (.js / .jsx).",
+    "Ensure all key buttons, inputs, links, forms, and tabs include data-testid attributes.",
+    "Avoid generic pure black #000000 backgrounds; use deep navy slate (#0B0F17) with layered cards (#131B2A / #1A2333).",
+    "Implement mobile-first design as garage owners use phones in the garage bays.",
+    "Ensure CASL-compliant SMS consent checkboxes are explicit and unbundled on public booking pages.",
+    "Use Lucide icons (lucide-react) for visual indicators like Calendar, MessageSquare, Wrench, Car, PhoneCall, ShieldCheck, DollarSign.",
+    "Use sonner for notifications and toasts."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": {
+    "contrast": "Maintain APCA AA standard contrast on dark slate backgrounds. Never put low-contrast grey text over dark background.",
+    "spacing": "Generous padding inside cards (p-4 to p-6), clean gaps between bento cells (gap-4 to gap-6).",
+    "interactivity": "Micro-animations on hover and active states (transition-all duration-200 hover:border-orange-500/50).",
+    "accessibility": "Full keyboard focus rings (focus:ring-2 focus:ring-orange-500 focus:outline-none) and aria attributes."
+  }
+}
