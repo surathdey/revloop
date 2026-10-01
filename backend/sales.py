@@ -262,7 +262,9 @@ async def dial(p, campaign_id, cfg):
             "assistant": {"firstMessage": first, "model": {"provider": "openai", "model": "gpt-4o", "messages": [{"role": "system", "content": script["system_prompt"]}]},
                           "voice": {"provider": "11labs", "voiceId": cfg.get("ELEVENLABS_VOICE_ID") or "burt"},
                           "artifactPlan": {"recordingEnabled": True},
-                          "server": {"url": f"{origin()}/api/webhooks/vapi", "secret": cfg["VAPI_WEBHOOK_SECRET"]}}}
+                          "server": ({"url": f"{origin()}/api/webhooks/vapi", "credentialId": cfg["VAPI_SERVER_CREDENTIAL_ID"]}
+                                     if cfg.get("VAPI_SERVER_CREDENTIAL_ID") else
+                                     {"url": f"{origin()}/api/webhooks/vapi", "secret": cfg["VAPI_WEBHOOK_SECRET"]})}}
     try:
         async with httpx.AsyncClient(timeout=20) as cl:
             r = await cl.post("https://api.vapi.ai/call", json=body, headers={"Authorization": f"Bearer {cfg['VAPI_API_KEY']}"})

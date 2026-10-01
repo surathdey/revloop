@@ -23,6 +23,7 @@ SETTING_KEYS = {
     "VAPI_API_KEY": True,
     "VAPI_PHONE_NUMBER_ID": False,
     "VAPI_WEBHOOK_SECRET": True,
+    "VAPI_SERVER_CREDENTIAL_ID": False,
     "ELEVENLABS_API_KEY": True,
     "ELEVENLABS_VOICE_ID": False,
 }
