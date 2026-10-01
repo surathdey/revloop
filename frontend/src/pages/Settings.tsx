@@ -11,6 +11,7 @@ import { api, money, fmt } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { useFetch, act } from "../lib/hooks";
 import { Card, Label2, PageHeader, Pill, Spinner, inputCls } from "../components/common";
+import BillingPanel from "../components/BillingPanel";
 
 const TZS = ["America/Toronto", "America/Vancouver", "America/Edmonton", "America/Winnipeg", "America/Halifax", "America/St_Johns"];
 const KEYS = ["name", "address", "phone", "review_link", "timezone", "quiet_start", "quiet_end", "review_delay", "open_hour", "close_hour", "bays", "logo"];
@@ -146,19 +147,6 @@ function BookingQr() {
   );
 }
 
-function Plan() {
-  const { me } = useAuth();
-  if (!me) return null;
-  const t = me.tenant;
-  return (
-    <Card className="space-y-2" data-testid="plan-card">
-      <div className="flex items-center gap-2"><h3 className="font-bold capitalize">{t.plan} plan</h3><Pill value={t.billing_status === "trialing" ? "pending" : t.billing_status} /></div>
-      <div className="text-sm text-slate-400">Trial ends {fmt(t.trial_ends, t.timezone, { dateStyle: "medium" })} · {t.quota} SMS segments / month · {t.extra_segments} extra</div>
-      <p className="text-xs text-slate-500">Stripe billing in CAD (plans, SMS packs, invoices) ships in Phase 3.</p>
-    </Card>
-  );
-}
-
 export default function Settings() {
   const [tab, setTab] = useState("profile");
   useEffect(() => { const p = new URLSearchParams(window.location.search).get("tab"); if (p) setTab(p); }, []);
@@ -167,7 +155,7 @@ export default function Settings() {
       <PageHeader title="Settings" sub="Owner-only. Changes are audited." />
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex h-auto flex-wrap justify-start bg-[#131B2A]">
-          {[["profile", "Business"], ["services", "Services"], ["team", "Team"], ["phone", "Phone & SMS"], ["qr", "Booking QR"], ["plan", "Plan"]].map(([v, l]) =>
+          {[["profile", "Business"], ["services", "Services"], ["team", "Team"], ["phone", "Phone & SMS"], ["qr", "Booking QR"], ["billing", "Billing"]].map(([v, l]) =>
             <TabsTrigger key={v} value={v} data-testid={`settings-tab-${v}`}>{l}</TabsTrigger>)}
         </TabsList>
         <TabsContent value="profile" className="mt-4"><Profile /></TabsContent>
@@ -175,7 +163,7 @@ export default function Settings() {
         <TabsContent value="team" className="mt-4"><Team /></TabsContent>
         <TabsContent value="phone" className="mt-4"><PhoneSms /></TabsContent>
         <TabsContent value="qr" className="mt-4"><BookingQr /></TabsContent>
-        <TabsContent value="plan" className="mt-4"><Plan /></TabsContent>
+        <TabsContent value="billing" className="mt-4"><BillingPanel /></TabsContent>
       </Tabs>
     </div>
   );

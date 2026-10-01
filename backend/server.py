@@ -10,15 +10,15 @@ from fastapi.exceptions import RequestValidationError  # noqa: E402
 from fastapi.responses import JSONResponse  # noqa: E402
 from starlette.middleware.cors import CORSMiddleware  # noqa: E402
 from core import client  # noqa: E402
-import auth, crm, appointments, messaging, public, admin, cron, seed  # noqa: E402,E401
+import auth, crm, appointments, messaging, public, admin, cron, seed, billing, sales  # noqa: E402,E401
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 app = FastAPI(title="RevLoop API")
 
-for r in (auth.router, crm.router, appointments.router, messaging.router, public.router, admin.router, cron.router):
+for r in (auth.router, crm.router, appointments.router, messaging.router, public.router, admin.router, cron.router, billing.router, sales.router):
     app.include_router(r)
 
-ORIGIN_EXEMPT = ("/api/webhooks/", "/api/cron/")
+ORIGIN_EXEMPT = ("/api/webhooks/", "/api/cron/", "/api/stripe/webhook")
 
 
 @app.middleware("http")
@@ -57,6 +57,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     await seed.run_seed()
+    await billing.seed_plans()
 
 
 @app.on_event("shutdown")

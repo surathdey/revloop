@@ -19,6 +19,12 @@ SETTING_KEYS = {
     "TWILIO_AUTH_TOKEN": True,
     "TWILIO_MESSAGING_SERVICE_SID": False,
     "SMS_MODE": False,
+    "BILLING_GRACE_DAYS": False,
+    "VAPI_API_KEY": True,
+    "VAPI_PHONE_NUMBER_ID": False,
+    "VAPI_WEBHOOK_SECRET": True,
+    "ELEVENLABS_API_KEY": True,
+    "ELEVENLABS_VOICE_ID": False,
 }
 
 

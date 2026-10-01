@@ -121,7 +121,7 @@ function Integrations() {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card className="space-y-3">
-        <h3 className="flex items-center gap-2 font-bold"><KeyRound className="h-4 w-4 text-orange-400" />Twilio</h3>
+        <h3 className="flex items-center gap-2 font-bold"><KeyRound className="h-4 w-4 text-orange-400" />Provider settings (Twilio, Vapi, ElevenLabs, billing)</h3>
         {keys.map((k) => (
           <div key={k} className="space-y-1">
             <div className="flex justify-between text-xs text-slate-300"><span className="font-mono-rl">{k}</span><span className="text-slate-500">{data[k].set ? data[k].value : "not set"}</span></div>
@@ -166,6 +166,35 @@ function Audits() {
   );
 }
 
+function Plans() {
+  const { data, reload } = useFetch<any[]>("/admin/plans");
+  const [edit, setEdit] = useState<any>({});
+  if (!data) return <Spinner />;
+  const val = (p: any, k: string) => edit[p.key]?.[k] ?? (k === "amount" ? p.amount / 100 : p[k]);
+  const set = (p: any, k: string, v: any) => setEdit({ ...edit, [p.key]: { ...edit[p.key], [k]: v } });
+  const save = async (p: any) => {
+    const body = { name: val(p, "name"), amount: Math.round(Number(val(p, "amount")) * 100), quota: Number(val(p, "quota")), segments: Number(val(p, "segments")), active: p.active };
+    if (await act(() => api.put(`/admin/plans/${p.key}`, body), "Plan saved and synced to Stripe")) reload();
+  };
+  return (
+    <div className="grid gap-4 md:grid-cols-3">
+      {data.map((p) => (
+        <Card key={p.key} className="space-y-2" data-testid={`admin-plan-${p.key}`}>
+          <Label2>{p.interval ? `Monthly subscription · ${p.key}` : "One-time SMS pack"}</Label2>
+          <Input data-testid={`plan-name-${p.key}`} className={inputCls} value={val(p, "name")} onChange={(e: any) => set(p, "name", e.target.value)} />
+          <div className="text-xs text-slate-400">Price (CAD)</div>
+          <Input data-testid={`plan-amount-${p.key}`} type="number" step="0.01" className={inputCls} value={val(p, "amount")} onChange={(e: any) => set(p, "amount", e.target.value)} />
+          <div className="text-xs text-slate-400">{p.interval ? "SMS segments / month" : "Extra segments granted"}</div>
+          <Input data-testid={`plan-quota-${p.key}`} type="number" className={inputCls} value={p.interval ? val(p, "quota") : val(p, "segments")} onChange={(e: any) => set(p, p.interval ? "quota" : "segments", e.target.value)} />
+          <div className="truncate font-mono-rl text-[10px] text-slate-500">{p.stripe_price_id || "not synced"}</div>
+          <Button data-testid={`plan-save-${p.key}`} onClick={() => save(p)} className="w-full bg-orange-500 text-white hover:bg-orange-600">Save</Button>
+        </Card>
+      ))}
+      <p className="text-xs text-slate-500 md:col-span-3">Changing a price creates a new Stripe price; existing subscribers keep their current price until changed in Stripe. Grace period days: Integrations → BILLING_GRACE_DAYS (default 7).</p>
+    </div>
+  );
+}
+
 export default function Admin() {
   return (
     <div>
@@ -175,12 +204,14 @@ export default function Admin() {
           <TabsTrigger value="overview" data-testid="admin-tab-overview"><Activity className="mr-1 h-3 w-3" />Health</TabsTrigger>
           <TabsTrigger value="garages" data-testid="admin-tab-garages"><Building2 className="mr-1 h-3 w-3" />Garages</TabsTrigger>
           <TabsTrigger value="numbers" data-testid="admin-tab-numbers"><Phone className="mr-1 h-3 w-3" />Number pool</TabsTrigger>
+          <TabsTrigger value="plans" data-testid="admin-tab-plans"><Activity className="mr-1 h-3 w-3" />Plans</TabsTrigger>
           <TabsTrigger value="integrations" data-testid="admin-tab-integrations"><KeyRound className="mr-1 h-3 w-3" />Integrations</TabsTrigger>
           <TabsTrigger value="audits" data-testid="admin-tab-audits"><ScrollText className="mr-1 h-3 w-3" />Audit log</TabsTrigger>
         </TabsList>
         <TabsContent value="overview" className="mt-4"><Overview /></TabsContent>
         <TabsContent value="garages" className="mt-4"><Garages /></TabsContent>
         <TabsContent value="numbers" className="mt-4"><Numbers /></TabsContent>
+        <TabsContent value="plans" className="mt-4"><Plans /></TabsContent>
         <TabsContent value="integrations" className="mt-4"><Integrations /></TabsContent>
         <TabsContent value="audits" className="mt-4"><Audits /></TabsContent>
       </Tabs>

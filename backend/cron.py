@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from pymongo.errors import DuplicateKeyError
 from core import db, now
 from messaging import process_queue, scan_due
+from sales import run_campaigns
 
 router = APIRouter(prefix="/api/cron")
 
@@ -30,6 +31,11 @@ async def _accept(request: Request, name: str):
         return False
 
 
+async def _tick():
+    await process_queue()
+    await run_campaigns()
+
+
 async def _nightly():
     await scan_due()
     await process_queue()
@@ -44,7 +50,7 @@ async def tick(request: Request, bg: BackgroundTasks):
     if ok is None:
         return JSONResponse({"detail": "Invalid body"}, status_code=400)
     if ok:
-        bg.add_task(process_queue)
+        bg.add_task(_tick)
     return {"accepted": True, "duplicate": not ok}
 
 

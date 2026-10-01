@@ -17,6 +17,8 @@ import Admin from "./pages/Admin";
 import PublicBooking from "./pages/PublicBooking";
 import CancelBooking from "./pages/CancelBooking";
 import Business from "./pages/Business";
+import Sales from "./pages/Sales";
+import PaymentResult from "./pages/PaymentResult";
 
 function Protected({ children, need }: { children: React.ReactNode; need?: "owner" | "superadmin" }) {
   const { me } = useAuth();
@@ -51,6 +53,9 @@ function AppRouter() {
       <Route path="/automations" element={<Protected need="owner"><Automations /></Protected>} />
       <Route path="/settings" element={<Protected need="owner"><Settings /></Protected>} />
       <Route path="/admin" element={<Protected need="superadmin"><Admin /></Protected>} />
+      <Route path="/sales" element={<Protected need="superadmin"><Sales /></Protected>} />
+      <Route path="/payment/success" element={<PaymentResult />} />
+      <Route path="/payment/cancel" element={<PaymentResult />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

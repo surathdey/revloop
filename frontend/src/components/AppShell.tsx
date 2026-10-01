@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, Users, MessageSquare, Zap, Settings, ShieldCheck, LogOut, Wrench } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Users, MessageSquare, Zap, Settings, ShieldCheck, LogOut, Wrench, PhoneCall } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth, isOwner } from "../lib/auth";
 import { api, errMsg } from "../lib/api";
@@ -19,7 +19,8 @@ function useNav(): Item[] {
     { to: "/settings", label: "Settings", icon: Settings, id: "settings" },
   ];
   const admin: Item = { to: "/admin", label: "Platform", icon: ShieldCheck, id: "admin" };
-  if (me.user.role === "superadmin") return me.impersonating ? [...garage, admin] : [admin];
+  const sales: Item = { to: "/sales", label: "AI Sales", icon: PhoneCall, id: "sales" };
+  if (me.user.role === "superadmin") return me.impersonating ? [...garage, admin] : [admin, sales];
   if (me.user.role === "staff") return garage.filter((i) => ["calendar", "customers", "inbox"].includes(i.id));
   return isOwner(me) ? garage : [];
 }
