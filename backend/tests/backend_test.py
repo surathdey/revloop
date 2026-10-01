@@ -17,12 +17,14 @@ OWNER = {"email": "owner@demo.revloop.test", "password": "RevLoop-Demo-2026!"}
 STAFF = {"email": "staff@demo.revloop.test", "password": "RevLoop-Demo-2026!"}
 CRON_SECRET = "15ab46384ac464b88ce1d31da573dc0cce73d9e35c901551a1d276cddbea37b6"
 TZ = ZoneInfo("America/Toronto")
+WEB_H = {"X-RevLoop-Client": "web"}
 
 
 # ---- session helpers ----
 
 def _login(creds):
     s = requests.Session()
+    s.headers.update({"X-RevLoop-Client": "web"})
     r = s.post(f"{API}/auth/login", json=creds, timeout=20)
     assert r.status_code == 200, f"login failed for {creds['email']}: {r.status_code} {r.text}"
     return s
@@ -54,7 +56,7 @@ class TestHealth:
 
 class TestAuth:
     def test_wrong_password(self):
-        r = requests.post(f"{API}/auth/login", json={"email": OWNER["email"], "password": "bad-password-xyz"}, timeout=15)
+        r = requests.post(f"{API}/auth/login", json={"email": OWNER["email"], "password": "bad-password-xyz"}, timeout=15, headers=WEB_H)
         assert r.status_code == 401
 
     def test_me_owner(self, owner):
@@ -81,6 +83,7 @@ class TestAuth:
     def test_signup_creates_pending_garage(self):
         email = f"test_{uuid.uuid4().hex[:10]}@example.com"
         s = requests.Session()
+        s.headers.update({"X-RevLoop-Client": "web"})
         r = s.post(f"{API}/auth/signup", json={
             "name": "TEST Owner", "business": f"TEST Garage {uuid.uuid4().hex[:6]}",
             "email": email, "password": "TestPassword123!"
@@ -168,8 +171,9 @@ class TestCRM:
     def test_csv_import_and_dup_flag(self, owner):
         # build CSV with 10 TEST rows (keep small for speed)
         rows = ["name,phone,make,model,year,plate,km"]
+        base = int(time.time()) % 90 + 10  # 10..99
         for i in range(10):
-            rows.append(f"TEST_CSV_{i}_{uuid.uuid4().hex[:4]},647-555-02{i:02d},Honda,Civic,2019,TCSV{i}{uuid.uuid4().hex[:3]},1000")
+            rows.append(f"TEST_CSV_{i}_{uuid.uuid4().hex[:4]},647-555-{base}{i:02d},Honda,Civic,2019,TCSV{i}{uuid.uuid4().hex[:3]},1000")
         csv_text = "\n".join(rows)
         r = owner.post(f"{API}/contacts/import", json={"csv": csv_text})
         assert r.status_code == 200, r.text
@@ -319,7 +323,7 @@ class TestPublic:
             "name": f"TEST Public {suffix}", "phone": f"647-555-03{int(time.time()) % 100:02d}",
             "make": "Ford", "model": "F150", "year": 2021, "plate": f"TPB{suffix}", "consent": False, "website": "",
         }
-        r = requests.post(f"{API}/public/book", json=payload)
+        r = requests.post(f"{API}/public/book", json=payload, headers=WEB_H)
         # Could be 409 if slot taken; 200 is success
         assert r.status_code in (200, 409), r.text
 
@@ -338,7 +342,7 @@ class TestPublic:
             "make": "X", "model": "Y", "year": 2020, "plate": "BOT1", "consent": False,
             "website": "spam.com",
         }
-        r = requests.post(f"{API}/public/book", json=payload)
+        r = requests.post(f"{API}/public/book", json=payload, headers=WEB_H)
         assert r.status_code == 400
 
 

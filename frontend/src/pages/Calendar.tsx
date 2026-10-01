@@ -23,7 +23,7 @@ function ApptDialog({ a, tz, onClose, onDone }: any) {
   };
   return (
     <Dialog open={!!a} onOpenChange={(o: boolean) => !o && onClose()}>
-      <DialogContent className="border-white/10 bg-[#131B2A]" data-testid="appointment-dialog">
+      <DialogContent className="max-h-[92vh] overflow-y-auto border-white/10 bg-[#131B2A]" data-testid="appointment-dialog">
         <DialogHeader><DialogTitle className="font-display text-2xl">{a.service?.name}</DialogTitle></DialogHeader>
         <div className="space-y-1 text-sm">
           <div className="flex items-center gap-2"><Pill value={a.status} testId="appointment-status" /> <span className="font-mono-rl text-orange-300">{fmt(a.start, tz)} · Bay {a.bay}</span></div>
@@ -31,6 +31,7 @@ function ApptDialog({ a, tz, onClose, onDone }: any) {
           <div className="text-slate-400">{a.vehicle?.year} {a.vehicle?.make} {a.vehicle?.model} · {a.vehicle?.plate} · {a.staff_name}</div>
           {a.notes && <div className="text-slate-400">“{a.notes}”</div>}
         </div>
+        {!open && <p className="text-sm text-slate-400" data-testid="appointment-closed-note">This appointment is closed — no further status changes.</p>}
         {open && (
           <div className="space-y-3 pt-2">
             <div className="grid grid-cols-2 gap-2">

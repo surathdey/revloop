@@ -131,7 +131,7 @@ function Integrations() {
         ))}
         <div className="flex gap-2">
           <Button data-testid="settings-save-integrations" onClick={() => save(Object.fromEntries(Object.entries(vals).filter(([, v]) => v)))} className="bg-orange-500 text-white hover:bg-orange-600">Save</Button>
-          <Button data-testid="twilio-check-btn" variant="outline" className="border-white/15 bg-white/5" onClick={async () => setCheck(await act(() => api.post("/admin/twilio/check")))}>Test connection</Button>
+          <Button data-testid="twilio-check-btn" variant="outline" className="border-white/15 bg-white/5" onClick={async () => { const r = await act(() => api.post("/admin/twilio/check")); if (r) { setCheck(r); toast.success(`Twilio connected: ${r.friendly_name} (${r.status})`); } }}>Test connection</Button>
         </div>
         {check && <div className="rounded-lg bg-emerald-500/10 p-3 text-xs" data-testid="twilio-check-result">Account {check.friendly_name} · {check.status}<br />Numbers: {check.numbers.map((n: any) => n.number).join(", ")}</div>}
       </Card>
