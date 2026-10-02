@@ -106,6 +106,8 @@ export default function Customers() {
         <Input data-testid="customer-search-input" value={q} onChange={(e: any) => setQ(e.target.value)} placeholder="Search customers…" className={`${inputCls} pl-9`} />
       </div>
       {loading && !data ? <Spinner /> : !data?.length ? <Empty title="No customers found" sub="Add one in under a minute with Quick add." testId="customers-empty" /> : (
+        <>
+        <div className="mb-2 text-xs text-slate-400" data-testid="customer-count">{dq ? `${data.length} match${data.length === 1 ? "" : "es"}` : `${data.length} customer${data.length === 1 ? "" : "s"}`}</div>
         <div className="grid gap-2" data-testid="customer-list">
           {data.map((c) => (
             <Link key={c.id} to={`/customers/${c.id}`} data-testid={`customer-row-${c.id}`}
@@ -121,6 +123,7 @@ export default function Customers() {
             </Link>
           ))}
         </div>
+        </>
       )}
       <QuickAdd open={add} onClose={() => setAdd(false)} onDone={reload} />
       <Import open={imp} onClose={() => setImp(false)} onDone={reload} />

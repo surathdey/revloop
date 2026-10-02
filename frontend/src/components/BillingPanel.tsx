@@ -9,7 +9,12 @@ import { Card, Label2, Pill, Spinner } from "./common";
 
 export default function BillingPanel() {
   const { me } = useAuth();
-  const { data } = useFetch<any>("/billing");
+  const { data, reload } = useFetch<any>("/billing");
+  const { refresh } = useAuth();
+  const change = async (p: any) => {
+    if (!window.confirm(`Switch to ${p.name} (${money(p.amount)} CAD/month)? Stripe charges or credits the prorated difference now.`)) return;
+    if (await act(() => api.post("/billing/change-plan", { plan: p.key }), `Plan changed to ${p.name}`)) { reload(); refresh(); }
+  };
   if (!data || !me) return <Spinner />;
   const t = data.tenant;
   const tz = me.tenant.timezone;
@@ -36,6 +41,18 @@ export default function BillingPanel() {
               <div className="mt-2 font-mono-rl text-3xl">{money(p.amount)}<span className="text-sm text-slate-400"> CAD / {p.interval}</span></div>
               <div className="mt-1 text-sm text-slate-400">{p.quota.toLocaleString()} SMS segments every month</div>
               <Button data-testid={`subscribe-${p.key}`} onClick={() => go(p.key)} className="mt-4 w-full bg-orange-500 text-white hover:bg-orange-600">Subscribe</Button>
+            </Card>
+          ))}
+        </div>
+      )}
+      {t.stripe_subscription && (
+        <div className="grid gap-4 md:grid-cols-2" data-testid="change-plan-section">
+          {subs.filter((p: any) => p.key !== t.plan).map((p: any) => (
+            <Card key={p.key} data-testid={`change-plan-${p.key}`}>
+              <Label2>{p.amount > (subs.find((x: any) => x.key === t.plan)?.amount || 0) ? "Upgrade" : "Downgrade"} to {p.name}</Label2>
+              <div className="mt-2 font-mono-rl text-2xl">{money(p.amount)}<span className="text-sm text-slate-400"> CAD / {p.interval}</span></div>
+              <div className="mt-1 text-sm text-slate-400">{p.quota.toLocaleString()} SMS segments every month. Prorated difference is invoiced immediately.</div>
+              <Button data-testid={`switch-plan-${p.key}`} onClick={() => change(p)} className="mt-4 w-full bg-orange-500 text-white hover:bg-orange-600">Switch to {p.name}</Button>
             </Card>
           ))}
         </div>

@@ -142,7 +142,7 @@ function Integrations() {
         <h3 className="flex items-center gap-2 font-bold"><KeyRound className="h-4 w-4 text-orange-400" />Provider settings (Twilio, Vapi, ElevenLabs, billing)</h3>
         {keys.map((k) => (
           <div key={k} className="space-y-1">
-            <div className="flex justify-between text-xs text-slate-300"><span className="font-mono-rl">{k}</span><span className="text-slate-500">{data[k].set ? data[k].value : "not set"}</span></div>
+            <div className="flex justify-between text-xs text-slate-300"><span className="font-mono-rl">{k}</span><span className="text-slate-500" data-testid={`setting-state-${k}`}>{data[k].set ? data[k].value : data[k].default ? `not set \u2014 using default ${data[k].default}` : "not set"}</span></div>
             <Input data-testid={`setting-${k}`} type={data[k].secret ? "password" : "text"} placeholder={data[k].set ? "Leave blank to keep" : "Enter value"} className={inputCls}
               value={vals[k] || ""} onChange={(e: any) => setVals({ ...vals, [k]: e.target.value })} />
           </div>

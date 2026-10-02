@@ -35,7 +35,11 @@ function TemplateEditor({ t, vars, tenantName, slug }: any) {
         <span data-testid={`segments-${t.kind}`} className={`font-mono-rl text-xs ${seg.count > 1 ? "text-amber-300" : "text-emerald-300"}`}>{seg.chars} chars · {seg.count} segment{seg.count > 1 ? "s" : ""}{seg.unicode ? " · unicode" : ""}</span></div>
       <Textarea data-testid={`template-body-${t.kind}`} value={body} onChange={(e: any) => setBody(e.target.value)} className={`${inputCls} min-h-[90px] font-mono-rl text-xs`} />
       <div className="mt-2 flex flex-wrap gap-1">
-        {vars.map((v: string) => <button key={v} type="button" onClick={() => setBody(body + ` {${v}}`)} className="rounded border border-white/10 px-1.5 py-0.5 font-mono-rl text-[10px] text-slate-400 hover:border-orange-500/50 hover:text-orange-300">{`{${v}}`}</button>)}
+        {vars.map((v: string) => {
+          const na = NO_APPT.includes(t.kind) && APPT_VARS.includes(v);
+          return <button key={v} type="button" disabled={na} title={na ? "Not available: this message is not tied to an appointment" : ""} data-testid={`var-${t.kind}-${v}`} onClick={() => setBody(body + ` {${v}}`)}
+            className={`rounded border px-1.5 py-0.5 font-mono-rl text-[10px] ${na ? "cursor-not-allowed border-white/5 text-slate-600 line-through" : "border-white/10 text-slate-400 hover:border-orange-500/50 hover:text-orange-300"}`}>{`{${v}}`}</button>;
+        })}
       </div>
       <div className="mt-3 rounded-lg bg-[#0F172A] p-3 text-xs text-slate-300 whitespace-pre-wrap" data-testid={`template-preview-${t.kind}`}>{full}</div>
       <div className="mt-1 text-[11px] text-slate-500" data-testid={`template-state-${t.kind}`}>{body === saved ? "Preview matches the saved template" : "Unsaved changes — preview shows your edit"}</div>

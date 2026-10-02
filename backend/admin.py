@@ -19,13 +19,16 @@ def _mask(v: str):
     return ("•" * 6 + v[-4:]) if v and len(v) > 4 else "set"
 
 
+SETTING_DEFAULTS = {"SMS_MODE": "simulated", "BILLING_GRACE_DAYS": "7", "SESSION_IDLE_MINUTES": "60", "DEFAULT_TRIAL_DAYS": "14", "ELEVENLABS_VOICE_ID": "burt (Vapi default)"}
+
+
 @router.get("/settings")
 async def get_settings(ctx: Ctx = Depends(super_ctx)):
     cfg = await platform_config()
     out = {}
     for k, secret in SETTING_KEYS.items():
         v = cfg.get(k, "")
-        out[k] = {"set": bool(v), "value": _mask(v) if (secret and v) else v, "secret": secret}
+        out[k] = {"set": bool(v), "value": _mask(v) if (secret and v) else v, "secret": secret, "default": SETTING_DEFAULTS.get(k, "")}
     return out
 
 

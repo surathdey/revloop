@@ -257,6 +257,9 @@ async def inbound(params: dict, tenant=None, simulated=False):
                                            "kind": {"$in": list(REMINDER_KINDS)}, "sent_at": {"$ne": None},
                                            "appointment_id": {"$in": [a["id"] for a in upcoming]}}, sort=[("sent_at", -1)])
         target = next((a for a in upcoming if last and a["id"] == last["appointment_id"]), None) or (upcoming[0] if len(upcoming) == 1 else None)
+        if not target and kw == "YES":
+            # No reminder link to the reply: YES confirms the nearest upcoming unconfirmed appointment (safe, non-destructive).
+            target = next((a for a in upcoming if a["status"] == "scheduled"), None)
         if target:
             a = target
             new = "confirmed" if kw == "YES" else "cancelled"

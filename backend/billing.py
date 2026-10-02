@@ -200,6 +200,35 @@ async def billing(ctx: Ctx = Depends(owner_ctx)):
             "tenant": {k: t.get(k) for k in ("plan", "quota", "sms_used", "extra_segments", "billing_status", "trial_ends", "grace_until", "stripe_subscription")}}
 
 
+class ChangePlanIn(BaseModel):
+    plan: str
+
+
+@router.post("/billing/change-plan")
+async def change_plan(d: ChangePlanIn, ctx: Ctx = Depends(owner_ctx)):
+    t = ctx.tenant
+    if not t.get("stripe_subscription"):
+        raise AppError("Subscribe to a plan first.")
+    plan = await db.plans.find_one({"key": d.plan, "active": True, "interval": {"$ne": None}})
+    if not plan:
+        raise AppError("This plan is not available.", 404)
+    if plan["key"] == t.get("plan"):
+        raise AppError("You are already on this plan.")
+    prices = (await _s(stripe.Price.list, lookup_keys=[f"revloop_{plan['key']}"], active=True, limit=1)).data
+    if not prices:
+        raise AppError("This plan is not synced with Stripe yet.", 503)
+    sub = await _s(stripe.Subscription.retrieve, t["stripe_subscription"])
+    try:
+        sub = await _s(stripe.Subscription.modify, sub.id, items=[{"id": sub["items"]["data"][0]["id"], "price": prices[0].id}],
+                       proration_behavior="always_invoice", metadata={"tenant_id": t["id"], "plan": plan["key"]})
+    except stripe.error.StripeError as e:
+        raise AppError(f"Stripe could not change the plan: {e.user_message or type(e).__name__}", 502)
+    old = t.get("plan")
+    await apply_subscription(t["id"], sub.to_dict())
+    await audit(t["id"], ctx.user["id"], "billing.plan.changed", sub.id, {"from": old, "to": plan["key"], "proration": "always_invoice"})
+    return {"ok": True, "plan": plan["key"]}
+
+
 class PortalIn(BaseModel):
     origin_url: str
 

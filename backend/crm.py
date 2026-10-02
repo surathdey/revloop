@@ -50,7 +50,7 @@ async def list_contacts(q: str = "", ctx: Ctx = Depends(get_ctx)):
         if len(digits) >= 3:
             ors.append({"phone": {"$regex": digits}})
         filt = {"$or": ors}
-    contacts = await ctx.s.find("contacts", filt, sort=[("name", 1)], limit=1000)
+    contacts = await ctx.s.find("contacts", filt, sort=[("name", 1)], limit=10000)
     ids = [c["id"] for c in contacts]
     vehicles = await ctx.s.find("vehicles", {"contact_id": {"$in": ids}})
     by = {}
@@ -189,8 +189,15 @@ async def import_contacts(d: ImportIn, ctx: Ctx = Depends(get_ctx)):
         contacts.append(c)
         consents.append({"id": new_id(), "tenant_id": ctx.tenant_id, "contact_id": c["id"], "status": "none", "source": "CSV import",
                          "evidence": "Imported records require separate consent verification.", "expires_at": None, "created_at": now()})
-        if r.get("make") and r.get("plate"):
-            year = int(r["year"]) if r.get("year", "").isdigit() else 0
+        if r.get("make") or r.get("plate") or r.get("year"):
+            yr = r.get("year", "")
+            if not (yr.isdigit() and 1900 <= int(yr) <= 2100) or not r.get("make") or not r.get("plate"):
+                existing.discard(phone)
+                contacts.pop()
+                consents.pop()
+                res["errors"].append({"row": row, "message": f"Vehicle needs make, plate and a valid year (1900-2100); got year '{yr or 'blank'}'. Row not imported."})
+                continue
+            year = int(yr)
             vehicles.append({"id": new_id(), "tenant_id": ctx.tenant_id, "contact_id": c["id"], "make": r["make"][:40],
                              "model": r.get("model", "")[:50], "year": year, "plate": r["plate"].upper()[:20],
                              "km": int(r["km"]) if r.get("km", "").isdigit() else 0, "vin": r.get("vin", "")[:17], "created_at": now()})
