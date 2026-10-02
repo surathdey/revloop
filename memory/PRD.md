@@ -14,6 +14,11 @@ User choices: deliver phase-wise; Twilio keys provided ("all information should 
 ## Personas
 Super-admin (RevLoop team), Garage owner, Garage staff (Calendar/Customers/Inbox only, enforced server-side)
 
+## Implemented (2026-10-02, iteration 3 - customer QA defects BUG-001..017)
+- Access denied page + audited 403 for role and cross-garage access; forgot/reset password by email (Emergent Resend); idle session timeout; customer and vehicle edit; online bookings per slot (rejects double booking); no reminders queued without consent; YES/CANCEL applies to the right appointment; template saved/unsaved indicator; manual send also runs the service-due check; audit of logins and consent opt-ins with actor/date filters; Vapi/ElevenLabs health; default trial days; admin create garage; buy Twilio number; manual add prospect
+- Resolution sheet: /app/frontend/public/RevLoop_Defect_Resolution.xlsx
+- Tests: iteration_4 - 100/100 backend; UI selectors verified
+
 ## Implemented (2026-10-01, iteration 2)
 - Phase 3 Stripe billing (claimable Stripe test sandbox, CA account): plans live in the `plans` collection and super-admins edit them in Platform admin → Plans, which re-syncs CAD prices by lookup_key (Starter $49/300, Growth $99/1000, 500-SMS pack $15). Includes checkout (subscription + one-time pack), status polling, a signature-verified idempotent webhook at /api/stripe/webhook, grace period (BILLING_GRACE_DAYS, default 7), invoices list, customer portal, and an owner Billing tab
 - Phase 5 AI sales module (/sales, super-admin only): prospect CSV import with dedupe and DNC suppression, a 7-stage Kanban with stage history, a permanent do-not-call list (bulk paste for National DNCL), exportable call-attempt CSV, an agent script editor (opening line must identify RevLoop and give the recording notice), campaigns (calling window clamped to CRTC hours, attempt caps, retry spacing), and Vapi dialing from the cron tick. The Vapi webhook is secret-verified; GPT summaries come from gpt-5.6-terra (Universal Key). In-call opt-outs go to DNC automatically, and outcomes update the funnel stage. There's also a simulated-call endpoint for testing without Vapi

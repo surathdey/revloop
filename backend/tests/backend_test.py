@@ -102,7 +102,8 @@ class TestAuth:
         if contacts:
             cid = contacts[0]["id"]
             r = s.get(f"{API}/contacts/{cid}")
-            assert r.status_code == 404, f"Tenant isolation leak: {r.status_code}"
+            # BUG-003: cross-tenant access now returns 403 (not 404)
+            assert r.status_code == 403, f"Tenant isolation leak: {r.status_code}"
 
 
 # =========================
