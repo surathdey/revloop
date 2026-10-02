@@ -98,6 +98,29 @@ async def list_prospects(ctx: Ctx = Depends(super_ctx)):
     return await db.prospects.find({}, {"_id": 0}).sort("updated_at", -1).to_list(5000)
 
 
+class ProspectIn(BaseModel):
+    business_name: str = Field(min_length=2, max_length=120)
+    contact_name: str = Field(default="", max_length=80)
+    phone: str
+    email: str = Field(default="", max_length=200)
+    city: str = Field(default="", max_length=80)
+
+
+@router.post("/sales/prospects")
+async def add_prospect(d: ProspectIn, ctx: Ctx = Depends(super_ctx)):
+    phone = normalize_phone(d.phone)
+    if await db.dnc.find_one({"phone": phone}):
+        raise AppError("This number is on the do-not-call list.", 409)
+    p = {"id": new_id(), **d.model_dump(), "phone": phone, "website": "", "notes": "", "stage": "new", "dnc": False, "attempts": 0,
+         "last_call_at": None, "next_call_at": None, "summary": "", "outcome": "", "created_at": now(), "updated_at": now()}
+    try:
+        await db.prospects.insert_one(dict(p))
+    except DuplicateKeyError:
+        raise AppError("A prospect with this phone already exists.", 409)
+    await audit(ctx.tenant_id, ctx.user["id"], "sales.prospect.created", p["id"], {"business": d.business_name})
+    return p
+
+
 @router.get("/sales/prospects/{pid}")
 async def get_prospect(pid: str, ctx: Ctx = Depends(super_ctx)):
     p = await db.prospects.find_one({"id": pid}, {"_id": 0})

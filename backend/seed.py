@@ -23,7 +23,7 @@ INDEXES = [
     ("webhook_events", [("id", 1)], {"unique": True}), ("rate_limits", [("key", 1)], {"unique": True}),
     ("rate_limits", [("reset_at", 1)], {"expireAfterSeconds": 0}), ("platform_settings", [("key", 1)], {"unique": True}),
     ("login_attempts", [("identifier", 1)], {}), ("phone_numbers", [("number", 1)], {"unique": True}),
-    ("cron_runs", [("id", 1)], {"unique": True}),
+    ("cron_runs", [("id", 1)], {"unique": True}), ("password_reset_tokens", [("expires_at", 1)], {"expireAfterSeconds": 0}),
     ("plans", [("key", 1)], {"unique": True}), ("payment_transactions", [("session_id", 1)], {"unique": True}),
     ("prospects", [("phone", 1)], {"unique": True}), ("prospects", [("stage", 1)], {}), ("dnc", [("phone", 1)], {"unique": True}),
     ("call_logs", [("prospect_id", 1)], {}), ("call_logs", [("vapi_call_id", 1)], {}), ("stage_history", [("prospect_id", 1)], {}),

@@ -13,8 +13,9 @@ import { useFetch, act } from "../lib/hooks";
 import { Card, Label2, PageHeader, Pill, Spinner, Empty, inputCls } from "../components/common";
 import BookDialog from "../components/BookDialog";
 
-function FormDialog({ title, open, onClose, fields, onSubmit, testId }: any) {
+function FormDialog({ title, open, onClose, fields, onSubmit, testId, initial }: any) {
   const [f, setF] = useState<any>({});
+  React.useEffect(() => { if (open) setF(initial || {}); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Dialog open={open} onOpenChange={(o: boolean) => !o && onClose()}>
       <DialogContent className="border-white/10 bg-[#131B2A]" data-testid={testId}>
@@ -40,7 +41,7 @@ function FormDialog({ title, open, onClose, fields, onSubmit, testId }: any) {
   );
 }
 
-function VehicleCard({ v, tz, onRule, reload }: any) {
+function VehicleCard({ v, tz, onRule, onEdit, reload }: any) {
   const ruleAct = async (id: string, operation: string) => { if (await act(() => api.post("/reminders", { id, operation }), "Reminder updated")) reload(); };
   return (
     <Card data-testid={`vehicle-${v.id}`}>
@@ -49,7 +50,10 @@ function VehicleCard({ v, tz, onRule, reload }: any) {
           <div className="flex items-center gap-2 text-lg font-bold"><Car className="h-4 w-4 text-orange-400" />{v.year} {v.make} {v.model}</div>
           <div className="mt-1 font-mono-rl text-xs text-slate-400">PLATE {v.plate} · {v.km.toLocaleString()} km {v.vin && `· VIN ${v.vin}`}</div>
         </div>
-        <Button data-testid={`add-rule-${v.id}`} size="sm" variant="outline" onClick={() => onRule(v)} className="border-white/15 bg-white/5"><Bell className="mr-1 h-3 w-3" />Reminder</Button>
+        <div className="flex gap-1">
+          <Button data-testid={`edit-vehicle-${v.id}`} size="sm" variant="outline" onClick={() => onEdit(v)} className="border-white/15 bg-white/5">Edit</Button>
+          <Button data-testid={`add-rule-${v.id}`} size="sm" variant="outline" onClick={() => onRule(v)} className="border-white/15 bg-white/5"><Bell className="mr-1 h-3 w-3" />Reminder</Button>
+        </div>
       </div>
       {v.rules.length > 0 && (
         <div className="mt-4 space-y-2">
@@ -79,10 +83,12 @@ function VehicleCard({ v, tz, onRule, reload }: any) {
 export default function CustomerDetail() {
   const { id } = useParams();
   const { me } = useAuth();
-  const { data: c, loading, reload } = useFetch<any>(`/contacts/${id}`);
+  const { data: c, loading, reload, status } = useFetch<any>(`/contacts/${id}`);
   const [dlg, setDlg] = useState<string>("");
   const [ruleVehicle, setRuleVehicle] = useState<any>(null);
+  const [editVehicle, setEditVehicle] = useState<any>(null);
   const [notes, setNotes] = useState<string | null>(null);
+  if (status === 403 || status === 404) return <Empty testId="customer-unavailable" title={status === 403 ? "403 — Access denied" : "Customer not found"} sub={status === 403 ? "This record belongs to another garage. The attempt has been logged." : "It may have been removed."} />;
   if (!me || (loading && !c) || !c) return <Spinner />;
   const tz = me.tenant.timezone;
   return (
@@ -91,6 +97,7 @@ export default function CustomerDetail() {
       <PageHeader title={c.name} sub={`${c.phone}${c.email ? " · " + c.email : ""}`}
         actions={<>
           <Pill value={c.consent_status} testId="customer-consent-status" />
+          <Button data-testid="edit-customer-btn" size="sm" variant="outline" className="border-white/15 bg-white/5" onClick={() => setDlg("edit")}>Edit</Button>
           {isOwner(me) && <Button data-testid="change-consent-btn" size="sm" variant="outline" className="border-white/15 bg-white/5" onClick={() => setDlg("consent")}><ShieldCheck className="mr-1 h-4 w-4" />Consent</Button>}
           <Button data-testid="add-vehicle-btn" size="sm" variant="outline" className="border-white/15 bg-white/5" onClick={() => setDlg("vehicle")}><Plus className="mr-1 h-4 w-4" />Vehicle</Button>
           <Button data-testid="book-for-customer-btn" size="sm" className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => setDlg("book")}>Book</Button>
@@ -103,7 +110,7 @@ export default function CustomerDetail() {
           <TabsTrigger value="notes" data-testid="tab-notes">Notes</TabsTrigger>
         </TabsList>
         <TabsContent value="vehicles" className="mt-4 grid gap-4 lg:grid-cols-2">
-          {c.vehicles.map((v: any) => <VehicleCard key={v.id} v={v} tz={tz} reload={reload} onRule={(x: any) => { setRuleVehicle(x); setDlg("rule"); }} />)}
+          {c.vehicles.map((v: any) => <VehicleCard key={v.id} v={v} tz={tz} reload={reload} onEdit={(x: any) => { setEditVehicle(x); setDlg("editVehicle"); }} onRule={(x: any) => { setRuleVehicle(x); setDlg("rule"); }} />)}
         </TabsContent>
         <TabsContent value="messages" className="mt-4 space-y-2">
           {c.messages.length === 0 ? <Empty title="No messages yet" /> : c.messages.map((m: any) => (
@@ -126,6 +133,12 @@ export default function CustomerDetail() {
           <Button data-testid="save-notes-btn" className="mt-3 bg-orange-500 text-white hover:bg-orange-600" onClick={async () => { if (await act(() => api.patch(`/contacts/${c.id}`, { notes: notes ?? c.notes }), "Notes saved")) reload(); }}>Save notes</Button>
         </TabsContent>
       </Tabs>
+      <FormDialog testId="edit-customer-dialog" title="Edit customer" open={dlg === "edit"} onClose={() => setDlg("")} initial={{ name: c.name, phone: c.phone, email: c.email }}
+        fields={[["name", "Full name"], ["phone", "Mobile phone"], ["email", "Email", "email"]]}
+        onSubmit={async (f: any) => { const r = await act(() => api.patch(`/contacts/${c.id}`, { name: f.name, phone: f.phone, email: f.email || "" }), "Customer updated"); if (r) reload(); return r; }} />
+      <FormDialog testId="edit-vehicle-dialog" title="Edit vehicle" open={dlg === "editVehicle"} onClose={() => setDlg("")} initial={editVehicle ? { make: editVehicle.make, model: editVehicle.model, year: String(editVehicle.year), plate: editVehicle.plate, km: String(editVehicle.km), vin: editVehicle.vin } : {}}
+        fields={[["make", "Make"], ["model", "Model"], ["year", "Year", "number"], ["plate", "Plate"], ["km", "Odometer km", "number"], ["vin", "VIN (optional)"]]}
+        onSubmit={async (f: any) => { const r = await act(() => api.patch(`/vehicles/${editVehicle.id}`, { ...f, year: Number(f.year), km: Number(f.km || 0), vin: f.vin || "" }), "Vehicle updated"); if (r) reload(); return r; }} />
       <FormDialog testId="vehicle-dialog" title="Add vehicle" open={dlg === "vehicle"} onClose={() => setDlg("")}
         fields={[["make", "Make"], ["model", "Model"], ["year", "Year", "number"], ["plate", "Plate"], ["km", "Odometer km", "number"], ["vin", "VIN (optional)"]]}
         onSubmit={async (f: any) => { const r = await act(() => api.post("/vehicles", { ...f, contact_id: c.id, year: Number(f.year), km: Number(f.km || 0) }), "Vehicle added"); if (r) reload(); return r; }} />

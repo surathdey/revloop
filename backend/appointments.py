@@ -53,6 +53,10 @@ async def book_appointment(t: dict, actor_id: str, d: BookIn):
     if conflict:
         raise AppError("That bay, team member or vehicle is already booked at this time.", 409)
     a = await s.insert("appointments", {**d.model_dump(), "start": start, "end": end, "status": "scheduled", "token": new_token()})
+    contact = await s.one("contacts", {"id": d.contact_id})
+    if not contact or not can_send(contact, now()):
+        await audit(t["id"], actor_id, "appointment.booked", a["id"], {"start": start, "bay": d.bay, "sms": "skipped - no SMS consent"})
+        return a
     for kind, delay in (("confirmation", 0), ("reminder24", 24), ("reminder2", 2)):
         at = start - timedelta(hours=delay) if delay else now()
         if not delay or at > now():

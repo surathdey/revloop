@@ -20,6 +20,8 @@ SETTING_KEYS = {
     "TWILIO_MESSAGING_SERVICE_SID": False,
     "SMS_MODE": False,
     "BILLING_GRACE_DAYS": False,
+    "SESSION_IDLE_MINUTES": False,
+    "DEFAULT_TRIAL_DAYS": False,
     "VAPI_API_KEY": True,
     "VAPI_PHONE_NUMBER_ID": False,
     "VAPI_WEBHOOK_SECRET": True,
@@ -94,8 +96,9 @@ async def save_setting(key: str, value: str):
 class Scoped:
     """Tenant-scoped collection access: every query is forced to carry tenant_id."""
 
-    def __init__(self, tenant_id: str):
+    def __init__(self, tenant_id: str, actor: str = "system"):
         self.tid = tenant_id
+        self.actor = actor
 
     def f(self, q=None):
         return {**(q or {}), "tenant_id": self.tid}
@@ -114,6 +117,11 @@ class Scoped:
     async def get(self, coll, id_, msg="Not found."):
         d = await self.one(coll, {"id": id_})
         if not d:
+            other = await db[coll].find_one({"id": id_}, {"tenant_id": 1})
+            if other:
+                await audit(self.tid, self.actor, "access.denied.cross-tenant", id_,
+                            {"collection": coll, "owner_tenant": other.get("tenant_id"), "outcome": "denied"})
+                raise AppError("Access denied. This record belongs to another garage.", 403)
             raise AppError(msg, 404)
         return d
 

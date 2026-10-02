@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
+import { Navigate, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -84,6 +84,7 @@ export default function Login() {
           <p className="mt-2 text-sm text-slate-400">
             {mode === "invite" ? "Create your team login to access the shop calendar, customers and inbox." : "Bookings, reminders and reviews — from your phone."}
           </p>
+          {params.get("expired") && <div className="mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" data-testid="session-expired-notice">Your session expired after inactivity. Please sign in again.</div>}
           <Button data-testid="google-login-btn" type="button" variant="outline" onClick={() => googleLogin(mode === "invite" ? invite : undefined)}
             className="mt-8 w-full border-white/15 bg-white/5 py-5 font-semibold hover:bg-white/10">
             Continue with Google
@@ -98,6 +99,7 @@ export default function Login() {
               {busy ? "Please wait…" : mode === "login" ? "Sign in" : mode === "signup" ? "Create account" : "Join team"}
             </Button>
           </form>
+          {mode === "login" && <Link to="/forgot-password" className="mt-3 block text-sm text-orange-300 hover:text-orange-200" data-testid="forgot-password-link">Forgot password?</Link>}
           {mode !== "invite" && (
             <button data-testid="auth-mode-toggle" onClick={() => setMode(mode === "login" ? "signup" : "login")} className="mt-6 text-sm text-slate-400 hover:text-orange-300">
               {mode === "login" ? "New garage? Create an account" : "Already have an account? Sign in"}

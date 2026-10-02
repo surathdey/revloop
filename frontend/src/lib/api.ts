@@ -3,6 +3,14 @@ import axios from "axios";
 export const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 export const api = axios.create({ baseURL: API, withCredentials: true, headers: { "X-RevLoop-Client": "web" } });
 
+api.interceptors.response.use(undefined, (e) => {
+  const d = e?.response?.data?.detail;
+  if (e?.response?.status === 401 && typeof d === "string" && d.includes("inactivity") && !window.location.pathname.startsWith("/login")) {
+    window.location.href = "/login?expired=1";
+  }
+  return Promise.reject(e);
+});
+
 export function errMsg(e: any): string {
   const d = e?.response?.data?.detail;
   if (d == null) return e?.message || "Something went wrong. Please try again.";

@@ -6,8 +6,9 @@ import bcrypt
 import httpx
 from fastapi import APIRouter, Request, Response, Depends
 from pydantic import BaseModel, EmailStr, Field
-from core import db, now, new_id, sha, AppError, audit, rate_limit, Scoped
+from core import db, now, new_id, sha, AppError, audit, rate_limit, Scoped, platform_config, origin
 from policy import require_owner, DEFAULTS
+from emailer import send_email, action_email
 
 router = APIRouter(prefix="/api/auth")
 COOKIE = "session_token"
@@ -36,7 +37,7 @@ class Ctx:
 
     @property
     def s(self):
-        return Scoped(self.tenant["id"])
+        return Scoped(self.tenant["id"], self.user["id"])
 
     @property
     def role(self):
@@ -53,6 +54,13 @@ async def get_ctx(request: Request) -> Ctx:
     s = await db.sessions.find_one({"id": sha(raw)}, {"_id": 0})
     if not s or s["expires_at"] < now():
         raise AppError("Please sign in again.", 401)
+    idle = int((await platform_config()).get("SESSION_IDLE_MINUTES") or 60)
+    seen = s.get("last_seen_at") or s["created_at"]
+    if (now() - seen).total_seconds() > idle * 60:
+        await db.sessions.delete_one({"id": s["id"]})
+        raise AppError("Session expired after inactivity. Please sign in again.", 401)
+    if (now() - seen).total_seconds() > 60:
+        await db.sessions.update_one({"id": s["id"]}, {"$set": {"last_seen_at": now()}})
     user = await db.users.find_one({"id": s["user_id"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise AppError("Please sign in again.", 401)
@@ -65,14 +73,21 @@ async def get_ctx(request: Request) -> Ctx:
     return Ctx(user=user, tenant=tenant, session_id=s["id"], impersonating=bool(imp))
 
 
-async def owner_ctx(ctx: Ctx = Depends(get_ctx)) -> Ctx:
-    require_owner(ctx.role)
+async def _deny(ctx: Ctx, request: Request, msg: str):
+    await audit(ctx.tenant_id, ctx.user["id"], "access.denied", request.url.path,
+                {"role": ctx.role, "path": request.url.path, "method": request.method, "outcome": "denied"})
+    raise AppError(msg, 403)
+
+
+async def owner_ctx(request: Request, ctx: Ctx = Depends(get_ctx)) -> Ctx:
+    if ctx.role not in ("owner", "superadmin"):
+        await _deny(ctx, request, "Access denied. Only the owner can access this area.")
     return ctx
 
 
-async def super_ctx(ctx: Ctx = Depends(get_ctx)) -> Ctx:
+async def super_ctx(request: Request, ctx: Ctx = Depends(get_ctx)) -> Ctx:
     if ctx.role != "superadmin":
-        raise AppError("Access denied.", 403)
+        await _deny(ctx, request, "Access denied.")
     return ctx
 
 
@@ -92,13 +107,14 @@ def slugify(s: str):
 
 
 async def create_tenant(email, name, business, password_hash=None, google_sub=None, role="owner", approved=False, slug=None):
+    trial_days = int((await platform_config()).get("DEFAULT_TRIAL_DAYS") or 14)
     t = {
         "id": new_id(), "slug": slug or slugify(business), "name": business, "address": "", "phone": "",
         "timezone": "America/Toronto", "logo": "", "review_link": "", "status": "active",
         "approval_status": "approved" if approved else "pending", "approved_at": now() if approved else None,
         "provisioning_status": "unassigned", "twilio_number": None, "quiet_start": 9, "quiet_end": 20,
         "review_delay": 120, "plan": "trial", "quota": 100, "sms_used": 0, "sms_month": "", "extra_segments": 0,
-        "billing_status": "trialing", "trial_ends": now() + timedelta(days=14), "grace_until": None,
+        "billing_status": "trialing", "trial_ends": now() + timedelta(days=trial_days), "grace_until": None, "slot_capacity": 1,
         "open_hour": 8, "close_hour": 18, "bays": 3, "is_platform": role == "superadmin", "created_at": now(),
     }
     await db.tenants.insert_one(dict(t))
@@ -160,9 +176,12 @@ async def login(d: LoginIn, request: Request, response: Response):
     if not user or not verify_password(d.password, user.get("password_hash") or ""):
         await db.login_attempts.update_one({"identifier": ident},
                                            {"$inc": {"count": 1}, "$set": {"locked_until": now() + timedelta(minutes=15)}}, upsert=True)
+        if user:
+            await audit(user["tenant_id"], user["id"], "auth.login.failed", user["id"], {"ip": request.client.host if request.client else ""})
         raise AppError("Email or password is incorrect.", 401)
     await db.login_attempts.delete_one({"identifier": ident})
     await create_session(user["id"], response)
+    await audit(user["tenant_id"], user["id"], "auth.login", user["id"], {"method": "password", "role": user["role"]})
     return {"ok": True}
 
 
@@ -170,6 +189,11 @@ async def login(d: LoginIn, request: Request, response: Response):
 async def logout(request: Request, response: Response):
     raw = request.cookies.get(COOKIE)
     if raw:
+        s = await db.sessions.find_one({"id": sha(raw)})
+        if s:
+            u = await db.users.find_one({"id": s["user_id"]})
+            if u:
+                await audit(u["tenant_id"], u["id"], "auth.logout", u["id"], {})
         await db.sessions.delete_one({"id": sha(raw)})
     response.delete_cookie(COOKIE, path="/", secure=True, samesite="none")
     return {"ok": True}
@@ -213,6 +237,56 @@ async def invite_accept(d: InviteAcceptIn, response: Response):
     await db.users.insert_one(dict(user))
     await audit(inv["tenant_id"], user["id"], "invite.accepted", inv["id"], {"email": email})
     await create_session(user["id"], response)
+    await audit(user["tenant_id"], user["id"], "auth.login", user["id"], {"method": "invite", "role": user["role"]})
+    return {"ok": True}
+
+
+class AccessDeniedIn(BaseModel):
+    path: str = Field(max_length=300)
+
+
+@router.post("/access-denied")
+async def access_denied(d: AccessDeniedIn, ctx: Ctx = Depends(get_ctx)):
+    await audit(ctx.tenant_id, ctx.user["id"], "access.denied", d.path, {"role": ctx.role, "path": d.path, "via": "page", "outcome": "denied"})
+    return {"ok": True}
+
+
+class ForgotIn(BaseModel):
+    email: str = Field(min_length=3, max_length=200)
+
+
+@router.post("/forgot-password")
+async def forgot_password(d: ForgotIn, request: Request):
+    email = d.email.lower().strip()
+    await rate_limit("forgot:" + (request.client.host if request.client else "x"), 10, 3600)
+    await rate_limit("forgot-email:" + sha(email), 3, 3600)
+    user = await db.users.find_one({"email": email})
+    if user:
+        raw = secrets.token_urlsafe(32)
+        await db.password_reset_tokens.insert_one({"id": sha(raw), "user_id": user["id"], "used": False,
+                                                   "expires_at": now() + timedelta(hours=1), "created_at": now()})
+        await send_email(to=email, subject="Reset your RevLoop password", html=action_email(
+            user["name"], "We received a request to reset your RevLoop password.", "Choose a new password",
+            f"{origin()}/reset-password?token={raw}", "This link works once and expires in 1 hour. If you did not ask for this, ignore this email."))
+        await audit(user["tenant_id"], user["id"], "auth.password-reset.requested", user["id"], {})
+    return {"ok": True, "message": "If an account exists for that email, a reset link has been sent."}
+
+
+class ResetIn(BaseModel):
+    token: str = Field(min_length=20)
+    password: str = Field(min_length=12, max_length=128)
+
+
+@router.post("/reset-password")
+async def reset_password(d: ResetIn):
+    t = await db.password_reset_tokens.find_one_and_update(
+        {"id": sha(d.token), "used": False, "expires_at": {"$gt": now()}}, {"$set": {"used": True, "used_at": now()}})
+    if not t:
+        raise AppError("This reset link is invalid or has expired. Request a new one.")
+    user = await db.users.find_one({"id": t["user_id"]})
+    await db.users.update_one({"id": user["id"]}, {"$set": {"password_hash": hash_password(d.password)}})
+    await db.sessions.delete_many({"user_id": user["id"]})
+    await audit(user["tenant_id"], user["id"], "auth.password-reset.completed", user["id"], {"sessions_revoked": True})
     return {"ok": True}
 
 
@@ -237,4 +311,5 @@ async def google_session(d: GoogleIn, response: Response):
     elif not user.get("google_sub"):
         await db.users.update_one({"id": user["id"]}, {"$set": {"google_sub": g.get("id")}})
     await create_session(user["id"], response)
+    await audit(user["tenant_id"], user["id"], "auth.login", user["id"], {"method": "google", "role": user["role"]})
     return {"ok": True}

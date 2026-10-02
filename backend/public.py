@@ -53,6 +53,8 @@ async def available_slots(slug, service_id, date):
         if at < now() + timedelta(minutes=60) or at > now() + timedelta(days=90):
             continue
         overlap = [a for a in busy if a["start"] < end and a["end"] > at]
+        if len(overlap) >= t.get("slot_capacity", 1):
+            continue
         for bay in range(1, t["bays"] + 1):
             if any(a["bay"] == bay for a in overlap):
                 continue
@@ -114,8 +116,16 @@ async def public_book(d: PublicBookIn, request: Request, bg: BackgroundTasks):
     v = await s.one("vehicles", {"contact_id": c["id"], "plate": d.plate.upper()})
     if not v:
         v = await s.insert("vehicles", {"contact_id": c["id"], "make": d.make, "model": d.model, "year": d.year, "plate": d.plate.upper(), "km": 0, "vin": ""})
-    await book_appointment(t, "customer", BookIn(contact_id=c["id"], vehicle_id=v["id"], service_id=service["id"], start=d.start,
-                                                bay=slot["bay"], staff_id=slot["staff_id"], notes="Public booking"))
+    a = await book_appointment(t, "customer", BookIn(contact_id=c["id"], vehicle_id=v["id"], service_id=service["id"], start=d.start,
+                                                    bay=slot["bay"], staff_id=slot["staff_id"], notes="Public booking"))
+    # Race guard: if a concurrent request filled the slot, keep the earliest booking and reject this one.
+    same = await s.find("appointments", {"status": {"$in": OPEN}, "start": {"$lt": a["end"]}, "end": {"$gt": a["start"]}}, sort=[("created_at", 1)])
+    if [x["id"] for x in same].index(a["id"]) >= t.get("slot_capacity", 1):
+        await s.update("appointments", {"id": a["id"]}, {"$set": {"status": "cancelled", "notes": "Rejected: slot already booked"}})
+        await suppress_queued(t["id"], {"appointment_id": a["id"]}, "Slot already booked")
+        raise AppError("Sorry, that time was just booked by someone else. Please choose another time.", 409)
+    if d.consent:
+        await audit(t["id"], "customer", "consent.opted-in", c["id"], {"source": "Public booking form", "status": "express"})
     bg.add_task(process_queue, None, t["id"])
     return {"ok": True, "when": slot["label"], "service": service["name"]}
 

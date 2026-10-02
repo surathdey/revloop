@@ -189,9 +189,12 @@ async def process_queue(at=None, tenant_id=None):
         return out
 
 
-async def scan_due(at=None):
+async def scan_due(at=None, tenant_id=None):
     at = at or now()
-    rules = await db.reminder_rules.find({"$or": [{"snoozed_until": None}, {"snoozed_until": {"$lte": at}}]}, {"_id": 0}).to_list(50000)
+    q = {"$or": [{"snoozed_until": None}, {"snoozed_until": {"$lte": at}}]}
+    if tenant_id:
+        q["tenant_id"] = tenant_id
+    rules = await db.reminder_rules.find(q, {"_id": 0}).to_list(50000)
     queued = 0
     for r in rules:
         v = await db.vehicles.find_one({"id": r["vehicle_id"], "tenant_id": r["tenant_id"]})
@@ -248,9 +251,14 @@ async def inbound(params: dict, tenant=None, simulated=False):
         await audit(t["id"], "customer", "sms.help", c["id"], {"sid": sid})
     if kw in ("YES", "CANCEL"):
         upcoming = await db.appointments.find({"tenant_id": t["id"], "contact_id": c["id"], "status": {"$in": ["scheduled", "confirmed"]},
-                                               "start": {"$gte": now()}}, {"_id": 0}).sort("start", 1).limit(2).to_list(2)
-        if len(upcoming) == 1:
-            a = upcoming[0]
+                                               "start": {"$gte": now()}}, {"_id": 0}).sort("start", 1).to_list(50)
+        # The reply refers to the appointment whose confirmation/reminder this customer received most recently.
+        last = await db.messages.find_one({"tenant_id": t["id"], "contact_id": c["id"], "direction": "outbound",
+                                           "kind": {"$in": list(REMINDER_KINDS)}, "sent_at": {"$ne": None},
+                                           "appointment_id": {"$in": [a["id"] for a in upcoming]}}, sort=[("sent_at", -1)])
+        target = next((a for a in upcoming if last and a["id"] == last["appointment_id"]), None) or (upcoming[0] if len(upcoming) == 1 else None)
+        if target:
+            a = target
             new = "confirmed" if kw == "YES" else "cancelled"
             await db.appointments.update_one({"id": a["id"], "tenant_id": t["id"]}, {"$set": {"status": new}})
             if kw == "CANCEL":
@@ -370,7 +378,8 @@ async def simulate_reply(d: SimReplyIn, ctx: Ctx = Depends(get_ctx)):
 
 @router.post("/messages/process")
 async def process_now(ctx: Ctx = Depends(owner_ctx)):
-    return {"results": await process_queue(None, ctx.tenant_id)}
+    queued = await scan_due(None, ctx.tenant_id)
+    return {"results": await process_queue(None, ctx.tenant_id), "service_due_queued": queued}
 
 
 @router.get("/templates")

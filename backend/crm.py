@@ -13,6 +13,7 @@ from core import db, now, new_id, new_token, sha, origin, AppError, audit, platf
 from policy import normalize_phone, CONSENT_TEXT, TIMEZONES
 from auth import Ctx, get_ctx, owner_ctx, tenant_view
 from messaging import suppress_queued
+from emailer import send_email, action_email
 
 router = APIRouter(prefix="/api")
 
@@ -74,6 +75,8 @@ async def add_contact(d: QuickAddIn, ctx: Ctx = Depends(get_ctx)):
     await ctx.s.insert("consent_events", {"contact_id": c["id"], "status": c["consent_status"], "source": "staff attestation", "expires_at": None,
                                           "evidence": json.dumps({"actor": ctx.user["id"], "text": CONSENT_TEXT, "accepted": d.consent})})
     await audit(ctx.tenant_id, ctx.user["id"], "customer.created", c["id"], {"name": c["name"]})
+    if d.consent:
+        await audit(ctx.tenant_id, ctx.user["id"], "consent.opted-in", c["id"], {"source": "staff attestation", "status": "express"})
     return c
 
 
@@ -95,6 +98,7 @@ async def get_contact(cid: str, ctx: Ctx = Depends(get_ctx)):
 
 class ContactUpdateIn(BaseModel):
     name: Optional[str] = Field(default=None, min_length=2, max_length=100)
+    phone: Optional[str] = None
     email: Optional[str] = Field(default=None, max_length=200)
     notes: Optional[str] = Field(default=None, max_length=3000)
     tags: Optional[str] = Field(default=None, max_length=200)
@@ -102,10 +106,21 @@ class ContactUpdateIn(BaseModel):
 
 @router.patch("/contacts/{cid}")
 async def update_contact(cid: str, d: ContactUpdateIn, ctx: Ctx = Depends(get_ctx)):
-    await ctx.s.get("contacts", cid, "Customer not found.")
+    c = await ctx.s.get("contacts", cid, "Customer not found.")
     upd = {k: v for k, v in d.model_dump().items() if v is not None}
-    await ctx.s.update("contacts", {"id": cid}, {"$set": upd})
-    await audit(ctx.tenant_id, ctx.user["id"], "customer.updated", cid, upd)
+    if d.email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", d.email):
+        raise AppError("Enter a valid email address.")
+    if d.phone is not None:
+        upd["phone"] = normalize_phone(d.phone)
+        if upd["phone"] != c["phone"] and await ctx.s.one("contacts", {"phone": upd["phone"]}):
+            raise AppError("This phone number already belongs to another customer.", 409)
+    try:
+        await ctx.s.update("contacts", {"id": cid}, {"$set": upd})
+    except DuplicateKeyError:
+        raise AppError("This phone number already belongs to another customer.", 409)
+    if upd.get("phone") and upd["phone"] != c["phone"]:
+        await db.messages.update_many({"tenant_id": ctx.tenant_id, "contact_id": cid, "status": "queued"}, {"$set": {"recipient": upd["phone"]}})
+    await audit(ctx.tenant_id, ctx.user["id"], "customer.updated", cid, {**upd, "previous_phone": c["phone"]})
     return {"ok": True}
 
 
@@ -206,6 +221,24 @@ async def add_vehicle(d: VehicleIn, ctx: Ctx = Depends(get_ctx)):
     return v
 
 
+class VehicleUpdateIn(BaseModel):
+    make: str = Field(min_length=1, max_length=40)
+    model: str = Field(min_length=1, max_length=50)
+    year: int = Field(ge=1900, le=2100)
+    plate: str = Field(min_length=1, max_length=20)
+    km: int = Field(ge=0, le=3000000)
+    vin: str = Field(default="", max_length=17)
+
+
+@router.patch("/vehicles/{vid}")
+async def update_vehicle(vid: str, d: VehicleUpdateIn, ctx: Ctx = Depends(get_ctx)):
+    v = await ctx.s.get("vehicles", vid, "Vehicle not found.")
+    upd = {**d.model_dump(), "plate": d.plate.upper()}
+    await ctx.s.update("vehicles", {"id": vid}, {"$set": upd})
+    await audit(ctx.tenant_id, ctx.user["id"], "vehicle.updated", vid, {**upd, "previous_km": v["km"]})
+    return {**v, **upd}
+
+
 class ReminderIn(BaseModel):
     operation: Literal["create", "done", "snooze"]
     id: Optional[str] = None
@@ -296,7 +329,11 @@ async def invite(d: InviteIn, ctx: Ctx = Depends(owner_ctx)):
     raw = new_token() + new_token()
     await ctx.s.insert("invites", {"email": email, "role": d.role, "token_hash": sha(raw), "expires_at": now() + timedelta(days=7), "accepted_at": None})
     await audit(ctx.tenant_id, ctx.user["id"], "invite.created", email, {"role": d.role})
-    return {"url": f"{origin()}/login?invite={raw}", "sent": False}
+    url = f"{origin()}/login?invite={raw}"
+    await send_email(to=email, subject=f"You're invited to {ctx.tenant['name']} on RevLoop", html=action_email(
+        email.split("@")[0], f"{ctx.user['name']} invited you to join {ctx.tenant['name']} on RevLoop as {d.role}.",
+        "Accept invitation", url, "This one-time link expires in 7 days."))
+    return {"url": url, "sent": True}
 
 
 class SettingsIn(BaseModel):
@@ -311,6 +348,7 @@ class SettingsIn(BaseModel):
     open_hour: int = Field(ge=0, le=23)
     close_hour: int = Field(ge=1, le=24)
     bays: int = Field(ge=1, le=30)
+    slot_capacity: int = Field(default=1, ge=1, le=30)
     logo: str = Field(default="", max_length=1000)
 
 

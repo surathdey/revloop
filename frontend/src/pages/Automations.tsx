@@ -19,8 +19,13 @@ const SAMPLE: Record<string, string> = {
   appointment_time: "9:30 AM", booking_link: "https://rvl.link/b/abc123", review_link: "https://rvl.link/r/xyz789",
 };
 
+const NO_APPT = ["serviceDue", "optout"];
+const APPT_VARS = ["appointment_date", "appointment_time"];
+
 function TemplateEditor({ t, vars, tenantName, slug }: any) {
   const [body, setBody] = useState(t.body);
+  const [saved, setSaved] = useState(t.body);
+  const missing = NO_APPT.includes(t.kind) ? APPT_VARS.filter((v) => body.includes(`{${v}}`)) : [];
   const preview = Object.entries(SAMPLE).reduce((s, [k, v]) => s.split(`{${k}}`).join(k === "business_name" ? tenantName : v), body);
   const full = t.kind === "optout" ? `${tenantName}: ${preview}` : `${tenantName}: ${preview}\nInfo: ${window.location.origin}/business/${slug}. Reply STOP to opt out.`;
   const seg = segments(full);
@@ -33,8 +38,10 @@ function TemplateEditor({ t, vars, tenantName, slug }: any) {
         {vars.map((v: string) => <button key={v} type="button" onClick={() => setBody(body + ` {${v}}`)} className="rounded border border-white/10 px-1.5 py-0.5 font-mono-rl text-[10px] text-slate-400 hover:border-orange-500/50 hover:text-orange-300">{`{${v}}`}</button>)}
       </div>
       <div className="mt-3 rounded-lg bg-[#0F172A] p-3 text-xs text-slate-300 whitespace-pre-wrap" data-testid={`template-preview-${t.kind}`}>{full}</div>
+      <div className="mt-1 text-[11px] text-slate-500" data-testid={`template-state-${t.kind}`}>{body === saved ? "Preview matches the saved template" : "Unsaved changes — preview shows your edit"}</div>
+      {missing.length > 0 && <div className="mt-1 text-[11px] text-amber-300" data-testid={`template-warning-${t.kind}`}>{missing.map((v) => `{${v}}`).join(", ")} will be blank in real texts — this message is not tied to an appointment.</div>}
       <div className="mt-3 flex gap-2">
-        <Button data-testid={`template-save-${t.kind}`} size="sm" className="bg-orange-500 text-white hover:bg-orange-600" onClick={() => act(() => api.put(`/templates/${t.kind}`, { body }), "Template saved")}>Save</Button>
+        <Button data-testid={`template-save-${t.kind}`} size="sm" className="bg-orange-500 text-white hover:bg-orange-600" onClick={async () => { const r = await act(() => api.put(`/templates/${t.kind}`, { body }), "Template saved"); if (r) setSaved(body); }}>Save</Button>
         <Button size="sm" variant="ghost" data-testid={`template-reset-${t.kind}`} onClick={() => setBody(t.default)}><RotateCcw className="mr-1 h-3 w-3" />Default</Button>
       </div>
     </Card>
@@ -65,7 +72,7 @@ export default function Automations() {
   const { me } = useAuth();
   const { data } = useFetch<any>("/templates");
   if (!me || !data) return <Spinner />;
-  const runNow = async () => { const r = await act(() => api.post("/messages/process")); if (r) toast.success(`Queue processed: ${r.results.length} message(s) handled`); };
+  const runNow = async () => { const r = await act(() => api.post("/messages/process")); if (r) toast.success(`Queue processed: ${r.service_due_queued} service-due reminder(s) queued, ${r.results.length} message(s) handled`); };
   return (
     <div>
       <PageHeader title="Automations" sub="Every automated text includes your business name and opt-out. Quiet hours, 30-day review cap and consent checks are enforced at send time."

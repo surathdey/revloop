@@ -5,12 +5,15 @@ import { api, errMsg } from "./api";
 export function useFetch<T = any>(url: string | null, deps: any[] = []) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<number>(0);
   const load = useCallback(async () => {
     if (!url) return;
     setLoading(true);
     try {
       setData((await api.get(url)).data);
-    } catch (e) {
+      setStatus(200);
+    } catch (e: any) {
+      setStatus(e?.response?.status || 500);
       toast.error(errMsg(e));
     } finally {
       setLoading(false);
@@ -20,7 +23,7 @@ export function useFetch<T = any>(url: string | null, deps: any[] = []) {
   useEffect(() => {
     load();
   }, [load]);
-  return { data, loading, reload: load, setData };
+  return { data, loading, reload: load, setData, status };
 }
 
 export async function act(fn: () => Promise<any>, ok?: string) {

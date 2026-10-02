@@ -48,10 +48,17 @@ function ProspectSheet({ id, onClose, onChange }: any) {
 function Funnel() {
   const { data, reload } = useFetch<any[]>("/sales/prospects");
   const [sel, setSel] = useState("");
+  const [np, setNp] = useState({ business_name: "", contact_name: "", phone: "", city: "" });
+  const addOne = async () => { if (await act(() => api.post("/sales/prospects", np), "Prospect added")) { setNp({ business_name: "", contact_name: "", phone: "", city: "" }); reload(); } };
   const upload = async (f: File) => { const r = await act(async () => api.post("/sales/prospects/import", { csv: await f.text() })); if (r) { toast.success(`Imported ${r.created} · ${r.duplicates} duplicates · ${r.suppressed} DNC-suppressed · ${r.errors.length} errors`); reload(); } };
   if (!data) return <Spinner />;
   return (
     <div>
+      <Card className="mb-4 grid gap-2 sm:grid-cols-5" data-testid="add-prospect-form">
+        {[["business_name", "Business name"], ["contact_name", "Contact"], ["phone", "Phone"], ["city", "City"]].map(([k, l]) =>
+          <Input key={k} data-testid={`new-prospect-${k}`} placeholder={l} className={inputCls} value={(np as any)[k]} onChange={(e: any) => setNp({ ...np, [k]: e.target.value })} />)}
+        <Button data-testid="add-prospect-btn" onClick={addOne} className="bg-orange-500 text-white hover:bg-orange-600">Add prospect</Button>
+      </Card>
       <label className="mb-4 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-sm" data-testid="prospect-import-label">
         <Upload className="h-4 w-4" />Upload prospects CSV (business_name, contact_name, phone, email, city)
         <input data-testid="prospect-import-input" type="file" accept=".csv" className="hidden" onChange={(e: any) => e.target.files?.[0] && upload(e.target.files[0])} />

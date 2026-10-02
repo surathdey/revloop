@@ -28,6 +28,9 @@ function Overview() {
         <span>Database: <Pill value={data.db === "ok" ? "active" : "failed"} /></span>
         <span>Twilio: <Pill value={data.twilio_configured ? "active" : "pending"} /></span>
         <span>SMS mode: <Pill value={data.sms_mode} testId="admin-sms-mode" /></span>
+        <span data-testid="health-vapi">Vapi: <Pill value={data.vapi === "ok" ? "active" : data.vapi === "not set" ? "pending" : "failed"} /> <span className="text-xs text-slate-400">{data.vapi}</span></span>
+        <span data-testid="health-elevenlabs">ElevenLabs: <Pill value={data.elevenlabs === "ok" ? "active" : data.elevenlabs === "not set" ? "pending" : "failed"} /> <span className="text-xs text-slate-400">{data.elevenlabs}</span></span>
+        <span data-testid="health-free-numbers" className={data.free_numbers ? "text-slate-300" : "text-amber-300"}>Free SMS numbers: {data.free_numbers}</span>
         <span className="text-slate-400">Last cron run: {data.last_cron ? fmt(data.last_cron.created_at, TZ) : "never"}</span>
       </Card>
     </div>
@@ -41,14 +44,23 @@ function Garages() {
   const { data: nums, reload: reloadNums } = useFetch<any[]>("/admin/numbers");
   const [imp, setImp] = useState<any>(null);
   const [reason, setReason] = useState("");
+  const [nt, setNt] = useState({ business: "", owner_name: "", owner_email: "" });
   const free = (nums || []).filter((n) => !n.tenant_id);
   const action = async (id: string, a: string) => { if (await act(() => api.post(`/admin/tenants/${id}/action`, { action: a }), `Garage ${a}d`)) reload(); };
   const assign = async (id: string, number_id: string) => { const r = await act(() => api.post(`/admin/tenants/${id}/assign-number`, { number_id })); if (r) { toast.success(`Number assigned. ${r.note}`); reload(); reloadNums(); } };
   const release = async (id: string) => { if (await act(() => api.post(`/admin/tenants/${id}/release-number`), "Number released")) { reload(); reloadNums(); } };
   const start = async () => { if (await act(() => api.post("/admin/impersonate", { tenant_id: imp.id, reason }), "Support session started")) { await refresh(); nav("/"); } };
   if (!data) return <Spinner />;
+  const create = async () => { const r = await act(() => api.post("/admin/tenants", nt), "Garage created — setup email sent to owner"); if (r) { setNt({ business: "", owner_name: "", owner_email: "" }); reload(); } };
   return (
     <div className="space-y-3">
+      {free.length === 0 && <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200" data-testid="empty-pool-warning">The SMS number pool is empty — approved garages can't get a dedicated number. Add or buy one in the Number pool tab.</div>}
+      <Card className="grid gap-2 sm:grid-cols-4" data-testid="create-garage-form">
+        <Input data-testid="new-garage-business" placeholder="Garage name" className={inputCls} value={nt.business} onChange={(e: any) => setNt({ ...nt, business: e.target.value })} />
+        <Input data-testid="new-garage-owner" placeholder="Owner name" className={inputCls} value={nt.owner_name} onChange={(e: any) => setNt({ ...nt, owner_name: e.target.value })} />
+        <Input data-testid="new-garage-email" type="email" placeholder="Owner email" className={inputCls} value={nt.owner_email} onChange={(e: any) => setNt({ ...nt, owner_email: e.target.value })} />
+        <Button data-testid="create-garage-btn" onClick={create} className="bg-orange-500 text-white hover:bg-orange-600">Create garage</Button>
+      </Card>
       {data.map((t) => (
         <Card key={t.id} data-testid={`tenant-${t.slug}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -92,6 +104,8 @@ function Garages() {
 function Numbers() {
   const { data, reload } = useFetch<any[]>("/admin/numbers");
   const [f, setF] = useState({ number: "", label: "" });
+  const [area, setArea] = useState("289");
+  const buy = async () => { if (!window.confirm(`Buy a new Twilio number in area code ${area}? Twilio will bill your account.`)) return; const r = await act(() => api.post("/admin/numbers/buy", { area_code: Number(area) })); if (r) { toast.success(`Purchased ${r.number}`); reload(); } };
   const add = async () => { if (await act(() => api.post("/admin/numbers", f), "Number added")) { setF({ number: "", label: "" }); reload(); } };
   return (
     <Card>
@@ -105,6 +119,10 @@ function Numbers() {
         <Input data-testid="pool-number-input" placeholder="+1 289 555 0100" className={`${inputCls} w-52`} value={f.number} onChange={(e: any) => setF({ ...f, number: e.target.value })} />
         <Input data-testid="pool-label-input" placeholder="Label" className={`${inputCls} w-40`} value={f.label} onChange={(e: any) => setF({ ...f, label: e.target.value })} />
         <Button data-testid="pool-add-btn" onClick={add} className="bg-orange-500 text-white hover:bg-orange-600">Add to pool</Button>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Input data-testid="buy-area-code" placeholder="Area code" className={`${inputCls} w-28`} value={area} onChange={(e: any) => setArea(e.target.value)} />
+        <Button data-testid="buy-number-btn" variant="outline" className="border-white/15 bg-white/5" onClick={buy}>Buy a Twilio number</Button>
       </div>
       <p className="mt-3 text-xs text-slate-500">Numbers must exist in the connected Twilio account. Assigning one sets its inbound SMS webhook automatically.</p>
     </Card>
@@ -150,14 +168,22 @@ function Integrations() {
 
 function Audits() {
   const [q, setQ] = useState("");
-  const { data } = useFetch<any[]>(`/admin/audits?action=${encodeURIComponent(q)}`);
+  const [actor, setActor] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const { data } = useFetch<any[]>(`/admin/audits?action=${encodeURIComponent(q)}&actor=${encodeURIComponent(actor)}&date_from=${from}&date_to=${to}`);
   return (
     <Card>
-      <Input data-testid="audit-filter" placeholder="Filter by action (e.g. consent, impersonation)" className={`${inputCls} mb-3`} value={q} onChange={(e: any) => setQ(e.target.value)} />
+      <div className="mb-3 grid gap-2 sm:grid-cols-4">
+        <Input data-testid="audit-filter" placeholder="Action (e.g. login, consent)" className={inputCls} value={q} onChange={(e: any) => setQ(e.target.value)} />
+        <Input data-testid="audit-actor-filter" placeholder="Actor email or role" className={inputCls} value={actor} onChange={(e: any) => setActor(e.target.value)} />
+        <Input data-testid="audit-date-from" type="date" className={inputCls} value={from} onChange={(e: any) => setFrom(e.target.value)} />
+        <Input data-testid="audit-date-to" type="date" className={inputCls} value={to} onChange={(e: any) => setTo(e.target.value)} />
+      </div>
       <div className="divide-y divide-white/5" data-testid="audit-list">
         {(data || []).map((a) => (
           <div key={a.id} className="py-2 text-xs">
-            <div className="flex flex-wrap gap-2"><span className="font-mono-rl text-orange-300">{a.action}</span><span className="text-slate-300">{a.tenant_name}</span><span className="text-slate-500">{fmt(a.created_at, TZ)} · {a.actor}</span></div>
+            <div className="flex flex-wrap gap-2"><span className="font-mono-rl text-orange-300">{a.action}</span><span className="text-slate-300">{a.tenant_name}</span><span className="text-slate-500">{fmt(a.created_at, TZ)} · {a.actor_label}</span></div>
             <div className="mt-0.5 break-all font-mono-rl text-[10px] text-slate-500">{a.detail}</div>
           </div>
         ))}

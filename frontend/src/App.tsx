@@ -19,13 +19,15 @@ import CancelBooking from "./pages/CancelBooking";
 import Business from "./pages/Business";
 import Sales from "./pages/Sales";
 import PaymentResult from "./pages/PaymentResult";
+import AccessDenied from "./components/AccessDenied";
+import { ForgotPassword, ResetPassword } from "./pages/PasswordReset";
 
 function Protected({ children, need }: { children: React.ReactNode; need?: "owner" | "superadmin" }) {
   const { me } = useAuth();
   if (me === null) return <div className="p-8"><Spinner /></div>;
   if (me === false) return <Navigate to="/login" replace />;
-  if (need === "owner" && !isOwner(me)) return <Navigate to="/calendar" replace />;
-  if (need === "superadmin" && me.user.role !== "superadmin") return <Navigate to="/" replace />;
+  if (need === "owner" && !isOwner(me)) return <AppShell><AccessDenied /></AppShell>;
+  if (need === "superadmin" && me.user.role !== "superadmin") return <AppShell><AccessDenied /></AppShell>;
   return <AppShell>{children}</AppShell>;
 }
 
@@ -42,6 +44,10 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/templates" element={<Protected need="owner"><Automations /></Protected>} />
+      <Route path="/billing" element={<Protected need="owner"><Navigate to="/settings?tab=billing" replace /></Protected>} />
       <Route path="/book/:slug" element={<PublicBooking />} />
       <Route path="/booking/:token" element={<CancelBooking />} />
       <Route path="/business/:slug" element={<Business />} />

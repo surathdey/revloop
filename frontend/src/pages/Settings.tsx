@@ -14,8 +14,8 @@ import { Card, Label2, PageHeader, Pill, Spinner, inputCls } from "../components
 import BillingPanel from "../components/BillingPanel";
 
 const TZS = ["America/Toronto", "America/Vancouver", "America/Edmonton", "America/Winnipeg", "America/Halifax", "America/St_Johns"];
-const KEYS = ["name", "address", "phone", "review_link", "timezone", "quiet_start", "quiet_end", "review_delay", "open_hour", "close_hour", "bays", "logo"];
-const NUM = ["quiet_start", "quiet_end", "review_delay", "open_hour", "close_hour", "bays"];
+const KEYS = ["name", "address", "phone", "review_link", "timezone", "quiet_start", "quiet_end", "review_delay", "open_hour", "close_hour", "bays", "slot_capacity", "logo"];
+const NUM = ["quiet_start", "quiet_end", "review_delay", "open_hour", "close_hour", "bays", "slot_capacity"];
 
 function F({ k, label, f, setF, type = "text", hint }: any) {
   return (
@@ -29,7 +29,7 @@ function F({ k, label, f, setF, type = "text", hint }: any) {
 
 function Profile() {
   const { me, refresh } = useAuth();
-  const [f, setF] = useState<any>(() => Object.fromEntries(KEYS.map((k) => [k, me ? me.tenant[k] : ""])));
+  const [f, setF] = useState<any>(() => Object.fromEntries(KEYS.map((k) => [k, me ? (me.tenant[k] ?? (k === "slot_capacity" ? 1 : "")) : ""])));
   const save = async () => {
     const body = Object.fromEntries(KEYS.map((k) => [k, NUM.includes(k) ? Number(f[k]) : f[k] || ""]));
     if (await act(() => api.put("/settings", body), "Settings saved")) refresh();
@@ -56,6 +56,7 @@ function Profile() {
           <F k="close_hour" label="Closes (hour 1-24)" type="number" f={f} setF={setF} />
           <F k="bays" label="Service bays" type="number" f={f} setF={setF} />
           <F k="review_delay" label="Review delay (minutes)" type="number" f={f} setF={setF} />
+          <F k="slot_capacity" label="Online bookings per time slot" type="number" f={f} setF={setF} hint="1 = a slot closes after one online booking" />
           <F k="quiet_start" label="Texts allowed from (9-19)" type="number" f={f} setF={setF} />
           <F k="quiet_end" label="Texts allowed until (10-20)" type="number" f={f} setF={setF} />
         </div>
@@ -96,7 +97,7 @@ function Team() {
         <Input data-testid="invite-email-input" type="email" placeholder="staff@email.com" className={inputCls} value={email} onChange={(e: any) => setEmail(e.target.value)} />
         <Button data-testid="invite-btn" onClick={invite} className="bg-orange-500 text-white hover:bg-orange-600">Invite staff</Button>
       </div>
-      {url && <div className="mt-3 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 text-xs" data-testid="invite-url">Share this one-time link (expires in 7 days):<div className="mt-1 break-all font-mono-rl text-orange-200">{url}</div>
+      {url && <div className="mt-3 rounded-lg border border-orange-500/30 bg-orange-500/5 p-3 text-xs" data-testid="invite-url">Share this one-time link (expires in 7 days) — it was also emailed to the invitee:<div className="mt-1 break-all font-mono-rl text-orange-200">{url}</div>
         <Button size="sm" variant="ghost" className="mt-1" onClick={() => { navigator.clipboard.writeText(url); toast.success("Copied"); }}><Copy className="mr-1 h-3 w-3" />Copy</Button></div>}
       <p className="mt-3 text-xs text-slate-500">Staff can use Calendar, Customers and Inbox only. Settings, automations and billing are blocked on the server.</p>
     </Card>
