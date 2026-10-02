@@ -35,7 +35,15 @@ Super-admin (RevLoop team), Garage owner, Garage staff (Calendar/Customers/Inbox
 - Minimal Phase 4: tenant approve/suspend/activate/cancel, number pool + assign (sets the Twilio inbound webhook automatically), Twilio creds encrypted (masked in UI), SMS mode live/simulated, audited support impersonation, cross-tenant audit log
 - Tests: iteration_2 — backend 44/44, frontend all critical flows pass
 
+## Implemented (2026-10-02, iteration 7) — QA tracker BUG-021..024
+- BUG-021: call recordings play via GET /api/sales/calls/{id}/recording (superadmin; redirects to a fresh Vapi presigned URL); audio player in call card
+- BUG-022: transcript viewer in each call card
+- BUG-023: audit entries sales.call.placed / failed / completed + sales.followup.sms / email
+- BUG-024: GUARDRAILS appended to Vapi system prompt; after interested/demo/details-requested calls, recap SMS (Twilio, from SALES_SMS_FROM or the Vapi Twilio calling number) and recap email (if the prospect gave one) are really sent; simulated calls record follow-ups as 'simulated'; summary says 'demo requested'
+- Tests: iteration_7 — 20/20 backend, frontend pass
+
 ## Backlog
+- P1: rename the 'Demo booked' stage label to 'Demo requested'
 - P0: Vapi account → add VAPI_API_KEY / VAPI_PHONE_NUMBER_ID / VAPI_WEBHOOK_SECRET (+ ElevenLabs voice) in Integrations, then run a test AI call; choose the AI caller ID
 - P0: claim the Stripe sandbox to go live; switch SMS_MODE to live
 - P1: copy call recordings into object storage; Phase 4 rest (feature flags, auto-provision numbers)
