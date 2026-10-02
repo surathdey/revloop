@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration-6 verifies the Vapi cold-call bugfix end-to-end. Added /app/backend/tests/test_bugfixes_iteration6.py (12 tests, all passing). (1) resolve_vapi(cfg) run against live platform config returns the expected IDs: phone e0be2ce1-428a-452b-bdbe-d2a9480162ee and credential 4bb3b1bc-cd64-4ee8-8bd7-934f8ca07c9a; a bogus number (+15555550000) raises AppError(400) with the clear 'Vapi has no phone number matching ...' message. (2) Real call_log 8d71cb02de8f415399c5e73e0032e2cc now stores status=completed, duration_s=84, outcome=not_interested, ended_reason=customer-ended-call, GPT summary (~500 chars) and a Recording URL; prospect +16476094072 is at stage=lost with stage_history 'new->contacted by ai-caller' and 'contacted->lost by ai-caller'. (3) POST /api/sales/calls/<id>/sync returns 200 {status:'already processed'} (idempotent via webhook_events :eocr key). (4) POST /api/webhooks/vapi: 403 with missing/wrong secret; 200 when the decrypted VAPI_WEBHOOK_SECRET is sent either as X-Vapi-Secret OR Authorization: Bearer; status-update body is a no-op (no end-of-call-report posted for the real call). (5) UI (super-admin -> AI Sales -> Funnel): kanban-col-lost shows the prospect card 'Test Garage · +16476094072 · not_interested'; opening prospect-sheet renders prospect-summary (the GPT summary), the call-8d71cb02... card displays status DELIVERED, outcome not_interested, the GPT summary and a 'Recording' <a> pointing to the Cloudflare R2 recording; sync-call-<id> is correctly HIDDEN for this completed call (confirmed count=0). (6) Code review via inspect.getsource: dial() marks status=failed when resolve_vapi raises OR when Vapi returns >=300, and test-call surfaces as 502; cron._tick calls sync_stale_calls(); sync_stale_calls queries created_at<now-10min as specified. Overall: 12/12 iteration-6 tests pass in 2.55s.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ProspectSheet badge", "issue": "Prospect pill shows 'SCHEDULED' next to the stage 'Lost' and attempts count. The badge appears to be mapped from the appointment Pill component rather than reflecting prospect/call state - purely cosmetic.", "selector": "[data-testid='prospect-sheet']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_bugfixes_iteration6.py",
+    "/app/test_reports/pytest/iteration6_results.xml"
+  ],
+  "action_items": [
+    "Review request mentions business name 'Surath Test Garage' for the lost prospect, but DB value is 'Test Garage' (the TestCallIn default). If the user expects their own garage name, update the business_name on the existing prospect record (do NOT delete it per the ground rules).",
+    "Platform Health header shows 'SMS mode: LIVE' instead of 'simulated' (per /app/memory/test_credentials.md). Verify this is intentional — out of scope for this review but a potential risk."
+  ],
+  "critical_code_review_comments": [
+    "dial() correctly marks the call_log 'failed' on resolve_vapi() AppError AND on Vapi >=300 HTTP responses — no stuck 'dialing' state. The test-call path re-raises as AppError 502 so the UI toast carries the Vapi message, which matches the request.",
+    "resolve_vapi() uses next((n for n in nums if digits in (digits_only, '1'+digits_only) ...)) — the matching accepts the phone's digits either without country code or with leading 1. Works for the current data but will NOT match E.164 inputs like '+14022075944' where the input already includes the '1' prefix (digits='14022075944' is not in {'4022075944','14022075944'}). Actually it DOES: 'digits' is the stripped input ('14022075944'), compared against '14022075944' (digits of n['number']) and '1'+'14022075944'. First case matches. OK. Still, worth a unit test for E.164 input.",
+    "sync_stale_calls() swallows per-call exceptions with logger.warning but does not retry or dead-letter. Repeatedly stale calls (e.g. Vapi 429) will keep being requeried each tick — bound to Vapi's rate limit. Consider a backoff or an attempt counter.",
+    "vapi_webhook: hmac.compare_digest on a shared-secret pattern is correct, but Vapi normally signs with an HMAC-SHA256 of the body, not a shared secret. Current implementation requires the plaintext secret in the header, which works with Vapi's 'server.secret' field. Just document that you are NOT using Vapi's signature verification mode.",
+    "sales.py is ~500 lines mixing prospects / DNC / script / campaigns / Vapi / summarization. Approaching the 700-line split threshold; a 'sales_vapi.py' submodule would help maintenance."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_bugfixes_iteration6.py (NEW: 12 tests across 5 test classes)"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% of selectors verified (kanban-col-lost, prospect-card, prospect-sheet, prospect-summary, call-<id> card with Recording link, sync-call button correctly hidden)"},
+  "test_credentials": "Used /app/memory/test_credentials.md unchanged (superadmin surathpar@gmail.com).",
+  "seed_data_creation": "None. Tests are strictly read-only on prospects/call_logs; webhook tests use a fake vapi_call_id ('nonexistent-test-call') with type='status-update' (no-op branch) so no state is written.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Vapi integration is live and functional. The REAL phone +16476094072 and its call_log 8d71cb02de8f415399c5e73e0032e2cc are preserved per instructions - do NOT /api/sales/test-call (rings owner's real phone, costs money) and do NOT post an 'end-of-call-report' webhook for the real vapi_call_id (01a0fad8-8cdd-7229-bfd0-0bcab9ee4c30) - that would re-run finish_call and mutate the record. The webhook_events collection already contains the dedupe key 'vapi:01a0fad8-...:eocr'. Pytest config lives in /app/backend/pytest.ini (-n 2 --dist loadscope). To run iter-6: `cd /app/backend && set -a && . ./.env && . /app/frontend/.env && set +a && python -m pytest tests/test_bugfixes_iteration6.py -v`.",
+  "rca of the issue": "User's cold-call failed because Platform admin → Integrations stored the Vapi _phone number string_ ('+1 (402) 207 5944') in VAPI_PHONE_NUMBER_ID and the credential _name_ ('RevLoopCredential') in VAPI_SERVER_CREDENTIAL_ID. The /call Vapi API rejects anything that isn't a UUID with 400. Fix in sales.resolve_vapi(): if the stored value is not UUID-shaped, call GET https://api.vapi.ai/phone-number (or /credential) and resolve by digits-matching the number (or by name) to its ID. dial() wraps resolve_vapi in try/except -> marks call_log failed; test-call re-raises as AppError(502) so the UI shows the real Vapi message. Verified end-to-end in iteration-6: resolve_vapi returns the expected IDs against the live platform config, a bogus number raises AppError(400), and the real test call placed by the main agent after the fix shows status=completed with GPT summary + Recording link + prospect stage 'lost'."
+}
