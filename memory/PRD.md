@@ -14,6 +14,10 @@ User choices: deliver phase-wise; Twilio keys provided ("all information should 
 ## Personas
 Super-admin (RevLoop team), Garage owner, Garage staff (Calendar/Customers/Inbox only, enforced server-side)
 
+## Implemented (2026-10-02, iteration 4 - retest round 2: BUG-005/010/011/018/019/020)
+- Settings show their defaults in Integrations; a YES reply confirms the nearest unconfirmed appointment when no reminder links it; appointment variables greyed out on Service due templates; plan upgrade/downgrade with proration (POST /api/billing/change-plan); CSV rejects invalid vehicle years; customer count shown
+- Sheet: /app/frontend/public/RevLoop_Defect_Resolution_v3.xlsx; tests iteration_5 108/108
+
 ## Implemented (2026-10-02, iteration 3 - customer QA defects BUG-001..017)
 - Access denied page + audited 403 for role and cross-garage access; forgot/reset password by email (Emergent Resend); idle session timeout; customer and vehicle edit; online bookings per slot (rejects double booking); no reminders queued without consent; YES/CANCEL applies to the right appointment; template saved/unsaved indicator; manual send also runs the service-due check; audit of logins and consent opt-ins with actor/date filters; Vapi/ElevenLabs health; default trial days; admin create garage; buy Twilio number; manual add prospect
 - Resolution sheet: /app/frontend/public/RevLoop_Defect_Resolution.xlsx
