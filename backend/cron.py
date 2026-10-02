@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from pymongo.errors import DuplicateKeyError
 from core import db, now
 from messaging import process_queue, scan_due
-from sales import run_campaigns
+from sales import run_campaigns, sync_stale_calls
 
 router = APIRouter(prefix="/api/cron")
 
@@ -34,6 +34,7 @@ async def _accept(request: Request, name: str):
 async def _tick():
     await process_queue()
     await run_campaigns()
+    await sync_stale_calls()
 
 
 async def _nightly():

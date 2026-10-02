@@ -1,4 +1,5 @@
 import os
+import logging
 import csv
 import io
 import json
@@ -272,6 +273,30 @@ def in_window(c, at):
     return wd in c["days"] and max(lo, c["window_start"]) <= h < min(hi, c["window_end"])
 
 
+UUID_RX = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
+async def resolve_vapi(cfg):
+    """Accept either Vapi IDs or the human values (phone number / credential name) and resolve them to IDs."""
+    phone_ref, cred_ref = cfg["VAPI_PHONE_NUMBER_ID"].strip(), (cfg.get("VAPI_SERVER_CREDENTIAL_ID") or "").strip()
+    h = {"Authorization": f"Bearer {cfg['VAPI_API_KEY']}"}
+    async with httpx.AsyncClient(timeout=20) as cl:
+        if not UUID_RX.match(phone_ref):
+            digits = re.sub(r"\D", "", phone_ref)
+            nums = (await cl.get("https://api.vapi.ai/phone-number", headers=h)).json()
+            match = next((n for n in nums if re.sub(r"\D", "", n.get("number") or "") in (digits, "1" + digits) or n.get("name") == phone_ref), None)
+            if not match:
+                raise AppError(f"Vapi has no phone number matching '{phone_ref}'. Use the phone number's ID from Vapi → Phone Numbers.", 400)
+            phone_ref = match["id"]
+        if cred_ref and not UUID_RX.match(cred_ref):
+            creds = (await cl.get("https://api.vapi.ai/credential", headers=h)).json()
+            match = next((c for c in creds if c.get("name") == cred_ref), None)
+            if not match:
+                raise AppError(f"Vapi has no credential named '{cred_ref}'. Use the credential's ID from Vapi → Integrations.", 400)
+            cred_ref = match["id"]
+    return phone_ref, cred_ref
+
+
 async def dial(p, campaign_id, cfg):
     if p.get("dnc") or await db.dnc.find_one({"phone": p["phone"]}):
         raise AppError("Number is on the do-not-call list.", 409)
@@ -280,21 +305,29 @@ async def dial(p, campaign_id, cfg):
            "status": "dialing", "dncl_screened": True, "outcome": "", "summary": "", "transcript": "", "recording_url": "", "opt_out": False, "created_at": now()}
     await db.call_logs.insert_one(dict(log))
     first = script["first_message"].replace("{business_name}", p["business_name"])
-    body = {"phoneNumberId": cfg["VAPI_PHONE_NUMBER_ID"], "customer": {"number": p["phone"], "name": p["business_name"][:40]},
+    try:
+        phone_id, cred_id = await resolve_vapi(cfg)
+    except AppError as e:
+        await db.call_logs.update_one({"id": log["id"]}, {"$set": {"status": "failed", "error": e.detail}})
+        raise
+    body = {"phoneNumberId": phone_id, "customer": {"number": p["phone"], "name": p["business_name"][:40]},
             "metadata": {"call_log_id": log["id"], "prospect_id": p["id"]},
             "assistant": {"firstMessage": first, "model": {"provider": "openai", "model": "gpt-4o", "messages": [{"role": "system", "content": script["system_prompt"]}]},
                           "voice": {"provider": "11labs", "voiceId": cfg.get("ELEVENLABS_VOICE_ID") or "burt"},
                           "artifactPlan": {"recordingEnabled": True},
-                          "server": ({"url": f"{origin()}/api/webhooks/vapi", "credentialId": cfg["VAPI_SERVER_CREDENTIAL_ID"]}
-                                     if cfg.get("VAPI_SERVER_CREDENTIAL_ID") else
+                          "server": ({"url": f"{origin()}/api/webhooks/vapi", "credentialId": cred_id}
+                                     if cred_id else
                                      {"url": f"{origin()}/api/webhooks/vapi", "secret": cfg["VAPI_WEBHOOK_SECRET"]})}}
     try:
         async with httpx.AsyncClient(timeout=20) as cl:
             r = await cl.post("https://api.vapi.ai/call", json=body, headers={"Authorization": f"Bearer {cfg['VAPI_API_KEY']}"})
-        r.raise_for_status()
+        if r.status_code >= 300:
+            raise RuntimeError(f"Vapi {r.status_code}: {r.text[:300]}")
         await db.call_logs.update_one({"id": log["id"]}, {"$set": {"vapi_call_id": r.json().get("id"), "status": "queued"}})
     except Exception as e:
-        await db.call_logs.update_one({"id": log["id"]}, {"$set": {"status": "failed", "error": str(e)[:300]}})
+        await db.call_logs.update_one({"id": log["id"]}, {"$set": {"status": "failed", "error": str(e)[:400]}})
+        if campaign_id is None:
+            raise AppError(f"Call failed: {str(e)[:300]}", 502)
     await db.prospects.update_one({"id": p["id"]}, {"$inc": {"attempts": 1}, "$set": {"last_call_at": now(), "updated_at": now()}})
     await stage_change(p, "contacted", "ai-caller") if p["stage"] == "new" else None
     return log["id"]
@@ -391,11 +424,54 @@ async def simulate_call(pid: str, d: SimIn, ctx: Ctx = Depends(super_ctx)):
     return await finish_call(log, d.transcript, ended_reason="simulated")
 
 
+async def sync_call(log):
+    """Pull a call's final result from Vapi's API (fallback when the end-of-call webhook did not arrive)."""
+    cfg = await platform_config()
+    async with httpx.AsyncClient(timeout=20) as cl:
+        r = await cl.get(f"https://api.vapi.ai/call/{log['vapi_call_id']}", headers={"Authorization": f"Bearer {cfg['VAPI_API_KEY']}"})
+    if r.status_code >= 300:
+        raise AppError(f"Vapi {r.status_code}: {r.text[:200]}", 502)
+    call = r.json()
+    if call.get("status") != "ended":
+        return {"status": call.get("status")}
+    try:
+        await db.webhook_events.insert_one({"id": f"vapi:{call['id']}:eocr", "provider": "vapi", "created_at": now()})
+    except DuplicateKeyError:
+        return {"status": "already processed"}
+    art = call.get("artifact") or {}
+    dur = None
+    if call.get("startedAt") and call.get("endedAt"):
+        from datetime import datetime
+        dur = round((datetime.fromisoformat(call["endedAt"].replace("Z", "+00:00")) - datetime.fromisoformat(call["startedAt"].replace("Z", "+00:00"))).total_seconds())
+    return await finish_call(log, art.get("transcript") or call.get("transcript") or "", art.get("recordingUrl") or call.get("recordingUrl") or "",
+                             dur, call.get("endedReason", ""))
+
+
+async def sync_stale_calls():
+    for log in await db.call_logs.find({"status": "queued", "vapi_call_id": {"$ne": None}, "created_at": {"$lt": now() - timedelta(minutes=10)}}, {"_id": 0}).to_list(50):
+        try:
+            await sync_call(log)
+        except Exception as e:
+            logging.getLogger("vapi").warning("Call sync failed for %s: %s", log["id"], type(e).__name__)
+
+
+@router.post("/sales/calls/{log_id}/sync")
+async def sync_call_route(log_id: str, ctx: Ctx = Depends(super_ctx)):
+    log = await db.call_logs.find_one({"id": log_id}, {"_id": 0})
+    if not log or not log.get("vapi_call_id"):
+        raise AppError("Call not found.", 404)
+    return await sync_call(log)
+
+
 @router.post("/webhooks/vapi")
 async def vapi_webhook(request: Request):
     cfg = await platform_config()
     secret = cfg.get("VAPI_WEBHOOK_SECRET", "")
-    if not secret or not hmac.compare_digest(request.headers.get("x-vapi-secret", ""), secret):
+    auth = request.headers.get("authorization", "")
+    provided = request.headers.get("x-vapi-secret", "") or (auth[7:] if auth.lower().startswith("bearer ") else auth)
+    if not secret or not hmac.compare_digest(provided.strip(), secret.strip()):
+        logging.getLogger("vapi").warning("Vapi webhook rejected: x-vapi-secret=%s authorization=%s secret_len=%s provided_len=%s",
+                                          "x-vapi-secret" in request.headers, "authorization" in request.headers, len(secret), len(provided))
         raise AppError("Invalid Vapi signature.", 403)
     msg = (await request.json()).get("message", {})
     call = msg.get("call") or {}

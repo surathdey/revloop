@@ -36,7 +36,8 @@ function ProspectSheet({ id, onClose, onChange }: any) {
           </div>}
           <div className="mt-4"><Label2>Call log</Label2></div>
           {p.calls.map((c: any) => <Card key={c.id} className="mt-2 p-3 text-xs" data-testid={`call-${c.id}`}><div className="flex flex-wrap gap-2"><Pill value={c.status === "completed" || c.status === "simulated" ? "delivered" : c.status === "failed" ? "failed" : "queued"} />{c.outcome}{c.simulated && " · simulated"}<span className="text-slate-500">{fmt(c.created_at, TZ)}</span></div>
-            {c.summary && <div className="mt-1 text-slate-300">{c.summary}</div>}{c.recording_url && <a href={c.recording_url} target="_blank" rel="noreferrer" className="text-orange-300">Recording</a>}{c.error && <div className="text-red-300">{c.error}</div>}</Card>)}
+            {c.summary && <div className="mt-1 text-slate-300">{c.summary}</div>}{c.recording_url && <a href={c.recording_url} target="_blank" rel="noreferrer" className="text-orange-300">Recording</a>}{c.error && <div className="text-red-300">{c.error}</div>}
+            {c.status === "queued" && c.vapi_call_id && <Button size="sm" variant="ghost" data-testid={`sync-call-${c.id}`} onClick={async () => { const r = await act(() => api.post(`/sales/calls/${c.id}/sync`)); if (r) { toast.success(r.summary ? "Call result fetched from Vapi" : `Vapi status: ${r.status}`); reload(); onChange(); } }}>Fetch result from Vapi</Button>}</Card>)}
           <div className="mt-4"><Label2>Stage history</Label2></div>
           {p.history.map((h: any) => <div key={h.id} className="mt-1 text-xs text-slate-400">{fmt(h.at, TZ)} · {label(h.from)} → <b className="text-slate-200">{label(h.to)}</b> · {h.by}</div>)}
         </>}
