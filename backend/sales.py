@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 import csv
 import io
@@ -9,13 +10,16 @@ from datetime import timedelta
 from zoneinfo import ZoneInfo
 import httpx
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, RedirectResponse
+from html import escape
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from pymongo.errors import DuplicateKeyError
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from core import db, now, new_id, origin, AppError, audit, platform_config
 from policy import normalize_phone
+from emailer import send_email
+from messaging import _twilio
 from auth import Ctx, super_ctx
 
 router = APIRouter(prefix="/api")
@@ -32,6 +36,17 @@ DEFAULT_SCRIPT = {
                      "asks to be removed, or says stop: apologise, confirm they will not be called again, and end the call immediately.",
     "opt_out_phrases": "do not call,don't call,stop calling,remove me,take me off,not interested in calls,unsubscribe",
 }
+GUARDRAILS = ("\n\nPLATFORM RULES (always apply, override anything above): You cannot send anything during the call and you cannot create calendar invites. "
+              "Right after the call RevLoop automatically texts this phone number a short summary, and emails it too if the person gives an email address. "
+              "If they want details or a demo, ask for their email, spell it back to confirm, and tell them they will get a text and an email with the details shortly after the call. "
+              "For a demo, collect a preferred day and time and say a RevLoop team member will confirm it. Never say the demo is booked or confirmed. "
+              "Never promise anything else (calendar invites, specific people calling, prices or discounts not stated above).")
+EMAIL_RX = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.I)
+
+
+async def sales_audit(action, entity_id, detail, actor="ai-caller"):
+    t = await db.tenants.find_one({"is_platform": True}, {"id": 1})
+    await audit(t["id"] if t else None, actor, action, entity_id, detail)
 
 
 async def stage_change(p, to, by, reason=""):
@@ -309,10 +324,11 @@ async def dial(p, campaign_id, cfg):
         phone_id, cred_id = await resolve_vapi(cfg)
     except AppError as e:
         await db.call_logs.update_one({"id": log["id"]}, {"$set": {"status": "failed", "error": e.detail}})
+        await sales_audit("sales.call.failed", log["id"], {"prospect": p["business_name"], "phone": p["phone"], "error": e.detail})
         raise
     body = {"phoneNumberId": phone_id, "customer": {"number": p["phone"], "name": p["business_name"][:40]},
             "metadata": {"call_log_id": log["id"], "prospect_id": p["id"]},
-            "assistant": {"firstMessage": first, "model": {"provider": "openai", "model": "gpt-4o", "messages": [{"role": "system", "content": script["system_prompt"]}]},
+            "assistant": {"firstMessage": first, "model": {"provider": "openai", "model": "gpt-4o", "messages": [{"role": "system", "content": script["system_prompt"] + GUARDRAILS}]},
                           "voice": {"provider": "11labs", "voiceId": cfg.get("ELEVENLABS_VOICE_ID") or "burt"},
                           "artifactPlan": {"recordingEnabled": True},
                           "server": ({"url": f"{origin()}/api/webhooks/vapi", "credentialId": cred_id}
@@ -324,8 +340,10 @@ async def dial(p, campaign_id, cfg):
         if r.status_code >= 300:
             raise RuntimeError(f"Vapi {r.status_code}: {r.text[:300]}")
         await db.call_logs.update_one({"id": log["id"]}, {"$set": {"vapi_call_id": r.json().get("id"), "status": "queued"}})
+        await sales_audit("sales.call.placed", log["id"], {"prospect": p["business_name"], "phone": p["phone"], "campaign_id": campaign_id})
     except Exception as e:
         await db.call_logs.update_one({"id": log["id"]}, {"$set": {"status": "failed", "error": str(e)[:400]}})
+        await sales_audit("sales.call.failed", log["id"], {"prospect": p["business_name"], "phone": p["phone"], "error": str(e)[:200]})
         if campaign_id is None:
             raise AppError(f"Call failed: {str(e)[:300]}", 502)
     await db.prospects.update_one({"id": p["id"]}, {"$inc": {"attempts": 1}, "$set": {"last_call_at": now(), "updated_at": now()}})
@@ -375,7 +393,9 @@ async def summarize(transcript: str, opt_phrases: str):
     chat = LlmChat(api_key=os.environ["EMERGENT_LLM_KEY"], session_id=f"call-{new_id()}",
                    system_message="You analyse sales call transcripts for RevLoop (garage software). Reply ONLY with JSON: "
                                   '{"summary": "2-3 sentences", "outcome": one of ["interested","demo_booked","callback","not_interested","do_not_call","no_answer","voicemail"], '
-                                  '"opt_out": true if the prospect asked not to be called again}').with_model("openai", os.environ["SALES_LLM_MODEL"])
+                                  '"opt_out": true if the prospect asked not to be called again, "email": the email address the prospect gave (fix spelled-out forms like \\"john at gmail dot com\\") or "", '
+                                  '"wants_followup": true if they asked for details, a demo, a text or an email, "demo_time": preferred demo day/time they gave or ""}. '
+                                  'In the summary never say a demo is booked/scheduled/confirmed - say "demo requested" with the preferred time.').with_model("openai", os.environ["SALES_LLM_MODEL"])
     raw = await chat.send_message(UserMessage(text=transcript[:30000] or "(no transcript - call not answered)"))
     m = re.search(r"\{.*\}", raw if isinstance(raw, str) else str(raw), re.S)
     out = json.loads(m.group(0)) if m else {"summary": str(raw)[:500], "outcome": "callback", "opt_out": False}
@@ -389,6 +409,69 @@ async def summarize(transcript: str, opt_phrases: str):
     return out
 
 
+async def sms_sender(cfg):
+    if cfg.get("SALES_SMS_FROM"):
+        return cfg["SALES_SMS_FROM"].strip()
+    phone_id, _ = await resolve_vapi(cfg)
+    async with httpx.AsyncClient(timeout=20) as cl:
+        n = (await cl.get(f"https://api.vapi.ai/phone-number/{phone_id}", headers={"Authorization": f"Bearer {cfg['VAPI_API_KEY']}"})).json()
+    return n.get("number") if n.get("provider") == "twilio" else None
+
+
+async def _followup_sms(p, demo_time, simulated):
+    body = (f"Hi from RevLoop! Thanks for chatting with Riley today. {'Demo requested for ' + demo_time + '. ' if demo_time else ''}"
+            "A RevLoop team member will confirm the details with you shortly. Questions? Just reply to this text. Reply STOP to opt out.")
+    out = {"channel": "sms", "to": p["phone"], "body": body, "at": now()}
+    cfg = await platform_config()
+    if simulated or cfg.get("SMS_MODE") != "live":
+        return {**out, "status": "simulated"}
+    try:
+        sender = await sms_sender(cfg)
+        if not sender or not cfg.get("TWILIO_ACCOUNT_SID"):
+            return {**out, "status": "skipped", "error": "No sales SMS number - set SALES_SMS_FROM in Platform admin → Integrations."}
+        msg = await asyncio.to_thread(lambda: _twilio(cfg).messages.create(to=p["phone"], from_=sender, body=body))
+        return {**out, "status": "sent", "from": sender, "sid": msg.sid}
+    except Exception as e:
+        return {**out, "status": "failed", "error": str(e)[:300]}
+
+
+async def _followup_email(p, email, summary, demo_time, simulated):
+    out = {"channel": "email", "to": email, "at": now()}
+    if simulated:
+        return {**out, "status": "simulated"}
+    name = p.get("contact_name") or p["business_name"]
+    html = (f'<table role="presentation" width="100%"><tr><td style="padding:24px;font-family:Arial,sans-serif;color:#111">'
+            f'<p>Hi {escape(name)},</p><p>Thanks for speaking with Riley from RevLoop today. Here is a recap of the call:</p>'
+            f'<p style="background:#f4f4f5;padding:12px;border-radius:6px">{escape(summary)}</p>'
+            + (f'<p><b>Demo requested:</b> {escape(demo_time)}. A RevLoop team member will confirm the time with you shortly.</p>' if demo_time else
+               '<p>A RevLoop team member will follow up with you shortly.</p>')
+            + '<p>RevLoop fills service bays for independent garages with online booking, automated SMS reminders and Google review requests.</p>'
+            '<p style="font-size:12px;color:#888">You received this because you asked for details during a call with RevLoop. Reply to let us know if you do not want further emails.</p></td></tr></table>')
+    try:
+        await send_email(to=email, subject="Your RevLoop call recap" + (" & demo request" if demo_time else ""), html=html)
+        return {**out, "status": "sent"}
+    except Exception as e:
+        return {**out, "status": "failed", "error": str(getattr(e, "detail", e))[:300]}
+
+
+async def send_followups(log, p, r, simulated):
+    if r.get("opt_out") or not (r.get("wants_followup") or r["outcome"] in ("interested", "demo_booked")):
+        return []
+    demo_time = (r.get("demo_time") or "").strip()[:80]
+    email = (r.get("email") or "").strip().lower()
+    email = email if EMAIL_RX.match(email) else (p.get("email") or "")
+    if email and not p.get("email"):
+        await db.prospects.update_one({"id": p["id"]}, {"$set": {"email": email}})
+    res = [await _followup_sms(p, demo_time, simulated)]
+    if email:
+        res.append(await _followup_email(p, email, r["summary"], demo_time, simulated))
+    else:
+        res.append({"channel": "email", "to": "", "status": "skipped", "error": "No email address given on the call.", "at": now()})
+    for f in res:
+        await sales_audit(f"sales.followup.{f['channel']}", log["id"], {"prospect": p["business_name"], "to": f["to"], "status": f["status"], "error": f.get("error", "")})
+    return res
+
+
 async def finish_call(log, transcript, recording_url="", duration=None, ended_reason=""):
     script = await get_script()
     r = await summarize(transcript, script.get("opt_out_phrases", ""))
@@ -396,6 +479,8 @@ async def finish_call(log, transcript, recording_url="", duration=None, ended_re
                                   "duration_s": duration, "ended_reason": ended_reason, "summary": r["summary"], "outcome": r["outcome"],
                                   "opt_out": bool(r.get("opt_out")), "ended_at": now()}})
     p = await db.prospects.find_one({"id": log["prospect_id"]}, {"_id": 0})
+    await sales_audit("sales.call.completed", log["id"], {"prospect": log.get("business_name"), "phone": log.get("phone"), "outcome": r["outcome"],
+                                                       "duration_s": duration, "ended_reason": ended_reason, "simulated": bool(log.get("simulated"))})
     if not p:
         return r
     await db.prospects.update_one({"id": p["id"]}, {"$set": {"summary": r["summary"], "outcome": r["outcome"], "updated_at": now()}})
@@ -403,6 +488,8 @@ async def finish_call(log, transcript, recording_url="", duration=None, ended_re
         await add_dnc(p["phone"], "Opted out during AI call", "ai-caller")
     else:
         await stage_change(p, OUTCOME_STAGE[r["outcome"]], "ai-caller", r["summary"][:200])
+    r["followups"] = await send_followups(log, p, r, bool(log.get("simulated")))
+    await db.call_logs.update_one({"id": log["id"]}, {"$set": {"followups": r["followups"]}})
     return r
 
 
@@ -453,6 +540,23 @@ async def sync_stale_calls():
             await sync_call(log)
         except Exception as e:
             logging.getLogger("vapi").warning("Call sync failed for %s: %s", log["id"], type(e).__name__)
+
+
+@router.get("/sales/calls/{log_id}/recording")
+async def call_recording(log_id: str, ctx: Ctx = Depends(super_ctx)):
+    log = await db.call_logs.find_one({"id": log_id}, {"_id": 0})
+    if not log or not log.get("vapi_call_id"):
+        raise AppError("Recording not found.", 404)
+    cfg = await platform_config()
+    async with httpx.AsyncClient(timeout=20) as cl:
+        r = await cl.get(f"https://api.vapi.ai/call/{log['vapi_call_id']}", headers={"Authorization": f"Bearer {cfg['VAPI_API_KEY']}"})
+    if r.status_code >= 300:
+        raise AppError(f"Vapi {r.status_code}: {r.text[:200]}", 502)
+    art = r.json().get("artifact") or {}
+    url = art.get("presignedMonoUrl") or art.get("presignedStereoUrl")
+    if not url:
+        raise AppError("Vapi has no recording for this call.", 404)
+    return RedirectResponse(url, status_code=307)
 
 
 @router.post("/sales/calls/{log_id}/sync")

@@ -19,7 +19,7 @@ def _mask(v: str):
     return ("•" * 6 + v[-4:]) if v and len(v) > 4 else "set"
 
 
-SETTING_DEFAULTS = {"SMS_MODE": "simulated", "BILLING_GRACE_DAYS": "7", "SESSION_IDLE_MINUTES": "60", "DEFAULT_TRIAL_DAYS": "14", "ELEVENLABS_VOICE_ID": "burt (Vapi default)"}
+SETTING_DEFAULTS = {"SMS_MODE": "simulated", "BILLING_GRACE_DAYS": "7", "SESSION_IDLE_MINUTES": "60", "DEFAULT_TRIAL_DAYS": "14", "ELEVENLABS_VOICE_ID": "burt (Vapi default)", "SALES_SMS_FROM": "the Vapi calling number (if Twilio)"}
 
 
 @router.get("/settings")
